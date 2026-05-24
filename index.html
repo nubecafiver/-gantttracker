@@ -576,7 +576,7 @@ var USER_DIR={
 // ════════════════════════════════════════
 var tasks=[],projects=[],history=[],dailyLogs=[],comments=[],evidencias=[];
 var curUser=null,curView='gantt',openTaskId=null,dpCurTab='details';
-var ganttStart=new Date(),ganttDays=120,collapsed=new Set(),editProjId=null,selProjColor=PROJ_COLORS[0];
+var ganttStart=new Date(),ganttDays=120,collapsed=new Set(),editProjId=null;
 var _cb=null;
 
 ganttStart.setDate(ganttStart.getDate()-14);
@@ -729,7 +729,7 @@ function switchView(v){
   curView=v;
   ['gantt','projects','daily','hist'].forEach(function(x){
     var el=document.getElementById('view-'+x);if(!el)return;
-    el.style.display=(x==='gantt'?(v==='gantt'?'flex':'none'):(v===x?'block':'none'));
+    el.classList.remove("hidden");el.style.display=(x==="gantt"?(v==="gantt"?"flex":"none"):(v===x?"block":"none"));
     if(x==='gantt')el.style.flexDirection='column';
     var btn=document.getElementById('tnav-'+x);if(btn)btn.classList.toggle('on',x===v);
   });
@@ -935,10 +935,10 @@ if(pn){pn.addEventListener('change',function(){var v=Math.min(100,Math.max(0,par
 // ════════════════════════════════════════
 function buildColorGrid(selected){
   var html='';
-  PROJ_COLORS.forEach(function(c){html+='<div class="color-swatch'+(c===selected?' sel':'')+'" style="background:'+c+'" onclick="selProjColor(\''+c+'\')"></div>';});
+  PROJ_COLORS.forEach(function(c){html+='<div class="color-swatch'+(c===selected?' sel':'')+'" style="background:'+c+'" onclick="pickProjColor(\''+c+'\')"></div>';});
   return html;
 }
-function selProjColor(c){selProjColor_=c;document.querySelectorAll('.color-swatch').forEach(function(el){el.classList.toggle('sel',el.style.background===c||el.style.backgroundColor===c);});}
+function pickProjColor(c){selProjColor_=c;document.querySelectorAll('.color-swatch').forEach(function(el){el.classList.toggle('sel',el.style.background===c||el.style.backgroundColor===c);});}
 var selProjColor_=PROJ_COLORS[0];
 
 function openNewProject(){
