@@ -577,7 +577,7 @@ var USER_DIR={
 // ════════════════════════════════════════
 // STATE
 // ════════════════════════════════════════
-var tasks=[],projects=[],history=[],dailyLogs=[],comments=[],evidencias=[];
+var tasks=[],projects=[],actLog=[],dailyLogs=[],comments=[],evidencias=[];
 var curUser=null,curView='gantt',openTaskId=null,dpCurTab='details';
 var ganttStart=new Date(),ganttDays=120,collapsed=new Set(),editProjId=null;
 var _cb=null;
@@ -609,9 +609,9 @@ function toast(msg){
 }
 function addH(t,campo,val){
   if(!curUser)return;
-  history.unshift({ts:nowStr(),user:curUser.name,proj:t.proj||'',task:t.name,campo:campo,val:String(val).slice(0,80)});
-  if(history.length>500)history=history.slice(0,500);
-  db.collection('history').doc('main').set({items:history.slice(0,200)}).catch(function(){});
+  actLog.unshift({ts:nowStr(),user:curUser.name,proj:t.proj||'',task:t.name,campo:campo,val:String(val).slice(0,80)});
+  if(actLog.length>500)actLog=actLog.slice(0,500);
+  db.collection('history').doc('main').set({items:actLog.slice(0,200)}).catch(function(){});
 }
 function projColor(projName){
   var p=projects.find(function(x){return x.name===projName;});
@@ -670,7 +670,7 @@ function enterApp(){
 }
 function doLogout(){
   auth.signOut().then(function(){
-    curUser=null;tasks=[];projects=[];history=[];dailyLogs=[];comments=[];evidencias=[];
+    curUser=null;tasks=[];projects=[];actLog=[];dailyLogs=[];comments=[];evidencias=[];
     closePanel();
     document.getElementById('app').classList.add('hidden');
     document.getElementById('login-screen').classList.remove('hidden');
@@ -712,7 +712,7 @@ function loadData(){
   // Daily logs
   db.collection('dailylogs').get().then(function(s){dailyLogs=s.docs.map(function(d){return d.data();});});
   // History
-  db.collection('history').doc('main').get().then(function(doc){if(doc.exists)history=doc.data().items||[];});
+  db.collection('history').doc('main').get().then(function(doc){if(doc.exists)actLog=doc.data().items||[];});
   switchView('gantt');
 }
 function fbSaveTask(t){
@@ -1154,7 +1154,7 @@ function renderHist(){
   var wrap=document.getElementById('hist-inner');if(!wrap)return;
   wrap.innerHTML='<div class="page-hd"><div><h2>Historial</h2><p>Registro de todos los cambios realizados</p></div></div>'+
     (history.length?'<div class="hist-wrap"><div style="overflow-x:auto;"><table><thead><tr><th>Fecha/Hora</th><th>Usuario</th><th>Proyecto</th><th>Tarea</th><th>Campo</th><th>Valor</th></tr></thead><tbody>'+
-    history.slice(0,200).map(function(h){return'<tr><td style="font-family:monospace;white-space:nowrap;font-size:11px;">'+h.ts+'</td><td>'+h.user+'</td><td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;">'+h.proj+'</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+h.task+'</td><td style="font-size:11px;">'+h.campo+'</td><td style="font-weight:600;">'+h.val+'</td></tr>';}).join('')+'</tbody></table></div></div>':
+    actLog.slice(0,200).map(function(h){return'<tr><td style="font-family:monospace;white-space:nowrap;font-size:11px;">'+h.ts+'</td><td>'+h.user+'</td><td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;">'+h.proj+'</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+h.task+'</td><td style="font-size:11px;">'+h.campo+'</td><td style="font-weight:600;">'+h.val+'</td></tr>';}).join('')+'</tbody></table></div></div>':
     '<div class="hist-wrap"><div class="empty-msg">Sin historial aún.</div></div>');
 }
 
