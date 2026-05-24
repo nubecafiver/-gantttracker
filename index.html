@@ -385,7 +385,7 @@ tbody tr:hover{background:rgba(255,255,255,.02);}
   <div class="dp-prog-bar" id="dp-prog-bar" style="width:0%"></div>
   <div class="dp-hd">
     <div class="dp-title-row">
-      <textarea class="dp-title" id="dp-title" rows="2" onchange="dpSave('name',this.value)"></textarea>
+      <textarea class="dp-title" id="dp-title" rows="2" onblur="dpSave('name',this.value)"></textarea>
       <div class="dp-acts">
         <button class="btn btn-ghost btn-icon" onclick="dpFav()" id="dp-fav" title="Favorito">☆</button>
         <button class="btn btn-ghost btn-icon" onclick="dpDelete()" title="Eliminar" style="color:var(--c-red);">🗑</button>
@@ -407,6 +407,9 @@ tbody tr:hover{background:rgba(255,255,255,.02);}
       <div class="dp-mf">
         <label>Fin</label>
         <input class="dp-date" type="date" id="dp-end" onchange="dpSave('end',this.value);renderGantt()">
+      </div>
+      <div style="margin-top:10px;">
+        <button class="btn btn-primary btn-sm" style="width:100%;" onclick="dpGuardarTodo()">💾 Guardar cambios</button>
       </div>
     </div>
   </div>
@@ -853,6 +856,19 @@ function dpSave(field,val){
   addH(t,field,val);fbSaveTask(t);
   if(curView==='gantt')renderGantt();
 }
+function dpGuardarTodo(){
+  var t=tasks.find(function(x){return x.id===openTaskId;});if(!t)return;
+  // Guardar titulo
+  var titulo=document.getElementById('dp-title');
+  if(titulo&&titulo.value.trim()) dpSave('name',titulo.value.trim());
+  // Guardar notas si está en ese tab
+  var notas=document.getElementById('notes-txt');
+  if(notas) dpSave('note',notas.value);
+  // Guardar asignado
+  var asignFields=document.querySelectorAll('.dp-fv input[type=text]');
+  asignFields.forEach(function(el){if(el.onblur)el.onblur();});
+  toast('💾 Cambios guardados');
+}
 function dpFav(){var t=tasks.find(function(x){return x.id===openTaskId;});if(!t)return;t.fav=!t.fav;document.getElementById('dp-fav').textContent=t.fav?'⭐':'☆';fbSaveTask(t);toast(t.fav?'⭐ Favorito agregado':'Favorito removido');}
 function dpDelete(){
   var t=tasks.find(function(x){return x.id===openTaskId;});if(!t)return;
@@ -877,22 +893,26 @@ function dpTab(tab){
     projects.forEach(function(p){if(grps.indexOf(p.name)<0)grps.push(p.name);});
     body.innerHTML=
       '<div class="dp-sec"><div class="dp-sec-t">Estado y asignación</div>'+
-      '<div class="dp-fr"><div class="dp-fk">Estado</div><div class="dp-fv"><select onchange="dpSave(\'status\',this.value);dpTab(\'details\')">'+stOpts.map(function(v){return'<option value="'+v+'"'+(t.status===v?' selected':'')+'>'+stLbl[v]+'</option>';}).join('')+'</select></div></div>'+
-      '<div class="dp-fr"><div class="dp-fk">Responsable</div><div class="dp-fv"><select onchange="dpSave(\'resp\',this.value)">'+rOpts.map(function(o){return'<option value="'+o.v+'"'+(t.resp===o.v?' selected':'')+'>'+o.l+'</option>';}).join('')+'</select></div></div>'+
-      '<div class="dp-fr"><div class="dp-fk">Asignado a</div><div class="dp-fv"><input type="text" value="'+((t.assign||'').replace(/"/g,'&quot;'))+'" onchange="dpSave(\'assign\',this.value)"></div></div>'+
-      '<div class="dp-fr"><div class="dp-fk">Proyecto</div><div class="dp-fv"><select onchange="dpSave(\'proj\',this.value)">'+grps.map(function(p){return'<option value="'+p+'"'+(t.proj===p?' selected':'')+'>'+p+'</option>';}).join('')+'</select></div></div>'+
+      '<div class="dp-fr"><div class="dp-fk">Estado</div><div class="dp-fv"><select id="dp-status" onchange="dpSave(\'status\',this.value);dpTab(\'details\')">'+stOpts.map(function(v){return'<option value="'+v+'"'+(t.status===v?' selected':'')+'>'+stLbl[v]+'</option>';}).join('')+'</select></div></div>'+
+      '<div class="dp-fr"><div class="dp-fk">Responsable</div><div class="dp-fv"><select id="dp-resp" onchange="dpSave(\'resp\',this.value)">'+rOpts.map(function(o){return'<option value="'+o.v+'"'+(t.resp===o.v?' selected':'')+'>'+o.l+'</option>';}).join('')+'</select></div></div>'+
+      '<div class="dp-fr"><div class="dp-fk">Asignado a</div><div class="dp-fv"><input type="text" id="dp-assign" value="'+(t.assign||'').replace(/"/g,'&quot;')+'" placeholder="Persona responsable..."></div></div>'+
+      '<div class="dp-fr"><div class="dp-fk">Proyecto</div><div class="dp-fv"><select id="dp-proj">'+grps.map(function(p){return'<option value="'+p+'"'+(t.proj===p?' selected':'')+'>'+p+'</option>';}).join('')+'</select></div></div>'+
       '<div class="dp-fr"><div class="dp-fk">Duración</div><div class="dp-fv" style="font-size:12px;font-weight:600;">'+dur+'</div></div>'+
       '</div>'+
       '<div class="dp-sec"><div class="dp-sec-t">Semáforo de avance</div><div class="sem-row">'+
       ['g','y','r'].map(function(v){return'<div class="sem-opt s-'+v+(t.sem===v?' on':'')+'" onclick="dpSave(\'sem\',\''+v+'\');dpTab(\'details\')"><div class="semdot" style="background:'+(v==='g'?'var(--c-green)':v==='y'?'var(--c-yellow)':'var(--c-red)')+'"></div>'+(v==='g'?'En tiempo':v==='y'?'En riesgo':'Atrasado')+'</div>';}).join('')+
       '</div></div>'+
       '<div class="dp-sec"><div class="dp-sec-t">Dependencias</div>'+
-      (predT?'<div style="font-size:12px;color:var(--c-text2);padding:6px 0;">⬆ Predecesor: <strong>'+predT.name+'</strong></div>':'<div style="font-size:12px;color:var(--c-text3);padding:4px 0;margin-bottom:6px;">Sin predecesor registrado.</div><input type="text" placeholder="Tarea predecesora..." style="width:100%;padding:6px 8px;" value="'+(t.dep||'')+'" onchange="dpSave(\'dep\',this.value)">')+
+      (predT?'<div style="font-size:12px;color:var(--c-text2);padding:6px 0;">⬆ Predecesor: <strong>'+predT.name+'</strong></div>':'<div style="font-size:12px;color:var(--c-text3);padding:4px 0;margin-bottom:6px;">Sin predecesor registrado.</div><input type="text" id="dp-dep" placeholder="Tarea predecesora..." style="width:100%;padding:6px 8px;" value="'+(t.dep||'')+'">')+
       (succT.length?succT.map(function(s){return'<div style="font-size:12px;color:var(--c-text2);padding:4px 0;">⬇ Sucesor: <strong>'+s.name+'</strong></div>';}).join(''):'')+
       '</div>'+
-      '<div class="dp-sec"><div class="dp-sec-t">Última modificación</div><div style="font-size:12px;color:var(--c-text2);">'+(t.updBy?'✏️ '+t.updBy+' — '+t.updTs:'Sin modificaciones registradas.')+'</div></div>';
+      '<div class="dp-sec"><div class="dp-sec-t">Última modificación</div><div style="font-size:12px;color:var(--c-text2);">'+(t.updBy?'✏️ '+t.updBy+' — '+t.updTs:'Sin modificaciones registradas.')+'</div></div>'+
+      '<div style="margin-top:12px;"><button class="btn btn-primary" style="width:100%;" onclick="dpGuardarDetalles()">💾 Guardar cambios</button></div>';
   }else if(tab==='notes'){
-    body.innerHTML='<div class="dp-sec"><div class="dp-sec-t">Notas</div><textarea class="notes-area" placeholder="Escribe notas, comentarios, acuerdos..." onchange="dpSave(\'note\',this.value)">'+(t.note||'')+'</textarea></div>';
+    body.innerHTML='<div class="dp-sec"><div class="dp-sec-t">Notas</div>'+
+      '<textarea class="notes-area" id="notes-txt" placeholder="Escribe notas, comentarios, acuerdos...">'+(t.note||'')+'</textarea>'+
+      '<div style="margin-top:10px;"><button class="btn btn-primary" style="width:100%;" onclick="dpSave(\'note\',document.getElementById(\'notes-txt\').value);toast(\'✅ Notas guardadas\')">💾 Guardar notas</button></div>'+
+      '</div>';
   }else if(tab==='ev'){
     var evs=evidencias.filter(function(e){return e.taskId===openTaskId;});
     body.innerHTML='<div class="dp-sec"><div class="dp-sec-t">Agregar evidencia</div>'+
@@ -909,6 +929,17 @@ function dpTab(tab){
     body.innerHTML='<div class="c-box"><div class="c-av" style="background:'+curUser.color+'33;color:'+curUser.color+'">'+ini(curUser.name)+'</div><input class="c-inp" type="text" id="c-inp" placeholder="Escribe un comentario..." onkeydown="if(event.key===\'Enter\')addComment()"></div>'+
       (tC.length?tC.map(function(c){return'<div class="c-item"><div class="c-av" style="background:'+c.color+'33;color:'+c.color+'">'+ini(c.user)+'</div><div class="c-txt"><div class="c-author">'+c.user+'</div><div class="c-body">'+c.text+'</div><div class="c-time">'+c.ts+'</div></div></div>';}).join(''):'<div style="font-size:12px;color:var(--c-text3);padding:8px 0;">Sin comentarios aún.</div>');
   }
+}
+function dpGuardarDetalles(){
+  var titulo=document.getElementById('dp-title');
+  if(titulo&&titulo.value.trim()) dpSave('name',titulo.value.trim());
+  var assign=document.getElementById('dp-assign');
+  if(assign) dpSave('assign',assign.value);
+  var dep=document.getElementById('dp-dep');
+  if(dep) dpSave('dep',dep.value);
+  var proj=document.getElementById('dp-proj');
+  if(proj) dpSave('proj',proj.value);
+  toast('✅ Cambios guardados');
 }
 function addComment(){var inp=document.getElementById('c-inp');if(!inp||!inp.value.trim())return;var c={id:uid(),taskId:openTaskId,user:curUser.name,color:curUser.color,text:inp.value.trim(),ts:nowStr()};comments.push(c);db.collection('comments').doc(c.id).set(c);dpTab('comments');toast('Comentario agregado');}
 function addEvidencia(){
