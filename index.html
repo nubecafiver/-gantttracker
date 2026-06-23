@@ -141,6 +141,11 @@ select option{background:var(--c-bg3);}
 .gbar-fill{position:absolute;top:0;left:0;height:100%;border-radius:4px;opacity:.9;}
 .gbar-txt{position:relative;z-index:1;font-size:10px;font-weight:600;color:#fff;padding:0 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;text-shadow:0 1px 2px rgba(0,0,0,.4);}
 .tline{position:absolute;top:0;bottom:0;width:2px;background:var(--c-blue);opacity:.7;z-index:10;pointer-events:none;}
+.gbar.dragging{opacity:.6;cursor:grabbing!important;z-index:50;}
+.gbar{cursor:grab;}
+.grow.drag-over{background:rgba(59,130,246,.18)!important;outline:2px dashed var(--c-blue);}
+.drag-ghost{position:fixed;pointer-events:none;z-index:9999;background:var(--c-bg3);border:1px solid var(--c-blue);border-radius:6px;padding:4px 10px;font-size:11px;font-weight:600;color:var(--c-text);box-shadow:0 4px 20px rgba(0,0,0,.4);white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis;}
+.grow.can-drop{background:rgba(16,185,129,.08)!important;}
 .tline::before{content:'';position:absolute;top:-4px;left:50%;transform:translateX(-50%);width:8px;height:8px;border-radius:50%;background:var(--c-blue);}
 
 /* ── DETAIL PANEL ── */
@@ -905,7 +910,11 @@ function renderGantt(){
         var bc=BAR_COLORS[t.resp]||'#3b82f6',ep=t.status==='completado'?100:(t.pct||0);
         var bar=document.createElement('div');bar.className='gbar';
         bar.style.left=Math.max(0,lPx)+'px';bar.style.width=wPx+'px';bar.title=t.name+' — '+ep+'%';
-        bar.innerHTML='<div class="gbar-bg" style="background:'+bc+';opacity:.18;"></div><div class="gbar-fill" style="width:'+ep+'%;background:'+bc+';"></div><span class="gbar-txt">'+t.name+'</span>';
+        bar.innerHTML='<div style="position:absolute;left:0;top:0;bottom:0;width:8px;cursor:ew-resize;z-index:2;background:linear-gradient(90deg,rgba(255,255,255,.15),transparent);border-radius:4px 0 0 4px;"></div>'+
+          '<div class="gbar-bg" style="background:'+bc+';opacity:.18;"></div>'+
+          '<div class="gbar-fill" style="width:'+ep+'%;background:'+bc+';"></div>'+
+          '<span class="gbar-txt">'+t.name+'</span>'+
+          '<div style="position:absolute;right:0;top:0;bottom:0;width:8px;cursor:ew-resize;z-index:2;background:linear-gradient(270deg,rgba(255,255,255,.15),transparent);border-radius:0 4px 4px 0;"></div>';
         bar.ondblclick=function(){openPanel(t.id);};bar.onclick=function(e){e.stopPropagation();selRow(t.id);};
         rd.appendChild(bar);
       }
@@ -920,6 +929,8 @@ function renderGantt(){
   var _s=false;
   bw.onscroll=function(){if(_s)return;_s=true;gb.scrollTop=bw.scrollTop;document.getElementById('month-hd').scrollLeft=bw.scrollLeft;document.getElementById('day-hd').scrollLeft=bw.scrollLeft;setTimeout(function(){_s=false;},0);};
   gb.onscroll=function(){if(_s)return;_s=true;bw.scrollTop=gb.scrollTop;setTimeout(function(){_s=false;},0);};
+  // Init drag & drop after render
+  setTimeout(function(){initRowDrag();initBarDrag();},150);
 }
 function hexToRgb(hex){
   var r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
@@ -931,6 +942,186 @@ function toggleGrp(g){
   renderGantt();
 }
 function selRow(tid){document.querySelectorAll('.grow.sel').forEach(function(e){e.classList.remove('sel');});var el=document.getElementById('lr_'+tid);if(el)el.classList.add('sel');}
+
+// ════════════════════════════════════════
+// DRAG & DROP — LEFT PANEL (change fase/project)
+// ════════════════════════════════════════
+var _dragTaskId=null, _dragGhost=null;
+
+function initRowDrag(){
+  // Make task rows in left panel draggable
+  document.querySelectorAll('#gl-body .grow:not(.grow-grp):not(.grow-overall)').forEach(function(row){
+    var tid=row.id.replace('lr_','');
+    if(!tid)return;
+    row.draggable=true;
+    row.addEventListener('dragstart',function(e){
+      _dragTaskId=tid;
+      var t=tasks.find(function(x){return x.id===tid;});
+      e.dataTransfer.effectAllowed='move';
+      e.dataTransfer.setData('text/plain',tid);
+      // Create ghost
+      _dragGhost=document.createElement('div');
+      _dragGhost.className='drag-ghost';
+      _dragGhost.textContent='📋 '+(t?t.name:'Tarea').slice(0,40);
+      document.body.appendChild(_dragGhost);
+      e.dataTransfer.setDragImage(document.createElement('div'),0,0);
+      setTimeout(function(){row.classList.add('dragging');},0);
+    });
+    row.addEventListener('dragend',function(){
+      row.classList.remove('dragging');
+      if(_dragGhost){_dragGhost.remove();_dragGhost=null;}
+      document.querySelectorAll('.grow.drag-over').forEach(function(el){el.classList.remove('drag-over');});
+      _dragTaskId=null;
+    });
+  });
+
+  // Make group/fase rows drop targets
+  document.querySelectorAll('#gl-body .grow-grp').forEach(function(row){
+    row.addEventListener('dragover',function(e){
+      if(!_dragTaskId)return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect='move';
+      document.querySelectorAll('.grow.drag-over').forEach(function(el){el.classList.remove('drag-over');});
+      row.classList.add('drag-over');
+    });
+    row.addEventListener('dragleave',function(){row.classList.remove('drag-over');});
+    row.addEventListener('drop',function(e){
+      e.preventDefault();
+      row.classList.remove('drag-over');
+      if(!_dragTaskId)return;
+      var t=tasks.find(function(x){return x.id===_dragTaskId;});
+      if(!t)return;
+      // Determine target: is it a PROJ or FASE row?
+      var rowText=row.querySelector('.task-lbl')?row.querySelector('.task-lbl').textContent.trim():'';
+      // Check if it's a project (has g-dot with box-shadow containing 44)
+      var isProjRow=row.style.background&&row.style.background.indexOf('0.08')!==-1;
+      if(isProjRow){
+        // Drop on project — change proyecto, clear fase
+        confirmAction('¿Mover tarea?','"'+t.name.slice(0,50)+'" → Proyecto: '+rowText,function(){
+          t.proyecto=rowText;t.proj=rowText;t.fase='';t.updBy=curUser.name;t.updTs=nowStr();
+          fbSaveTask(t);toast('✅ Tarea movida a: '+rowText);
+        });
+      } else {
+        // Drop on fase row — keep project, change fase
+        var faseName=rowText;
+        // Find what project this fase belongs to
+        var faseObj=fases.find(function(f){return f.nombre===faseName;});
+        var projName=faseObj?faseObj.proyecto:(t.proyecto||t.proj);
+        confirmAction('¿Mover tarea?','"'+t.name.slice(0,50)+'" → Fase: '+faseName,function(){
+          t.proyecto=projName;t.proj=projName;t.fase=faseName;t.updBy=curUser.name;t.updTs=nowStr();
+          fbSaveTask(t);toast('✅ Tarea movida a fase: '+faseName);
+        });
+      }
+    });
+  });
+}
+
+// Update ghost position on mouse move
+document.addEventListener('dragover',function(e){
+  if(_dragGhost){_dragGhost.style.left=(e.clientX+12)+'px';_dragGhost.style.top=(e.clientY-10)+'px';}
+});
+
+// ════════════════════════════════════════
+// DRAG & DROP — GANTT BARS (change dates)
+// ════════════════════════════════════════
+var _barDrag={active:false,taskId:null,type:null,startX:0,origStart:null,origEnd:null,dayW:28};
+
+function initBarDrag(){
+  document.querySelectorAll('#cal-b .gbar').forEach(function(bar){
+    var tid=null;
+    // Get task id from bar's onclick
+    bar.addEventListener('mousedown',function(e){
+      // Find task by matching bar position
+      var leftPx=parseInt(bar.style.left)||0;
+      var widPx=parseInt(bar.style.width)||0;
+      // Determine if clicking left edge (resize start), right edge (resize end), or middle (move)
+      var rect=bar.getBoundingClientRect();
+      var relX=e.clientX-rect.left;
+      var isLeftEdge=relX<10;
+      var isRightEdge=relX>rect.width-10;
+      // Find which task this bar belongs to
+      var dayOffset=Math.round(leftPx/28);
+      var barDate=addD(ganttStart,dayOffset);
+      var barYmd=ymd(barDate);
+      var matchTask=tasks.find(function(t){return t.start===barYmd;});
+      if(!matchTask){
+        // Try by width
+        var endOffset=Math.round((leftPx+widPx)/28)-1;
+        var endDate=addD(ganttStart,endOffset);
+        matchTask=tasks.find(function(t){return t.start===barYmd||t.end===ymd(endDate);});
+      }
+      if(!matchTask)return;
+      e.preventDefault();
+      _barDrag.active=true;
+      _barDrag.taskId=matchTask.id;
+      _barDrag.type=isLeftEdge?'resize-start':isRightEdge?'resize-end':'move';
+      _barDrag.startX=e.clientX;
+      _barDrag.origStart=matchTask.start;
+      _barDrag.origEnd=matchTask.end;
+      _barDrag.bar=bar;
+      bar.classList.add('dragging');
+      document.body.style.userSelect='none';
+      document.body.style.cursor=isLeftEdge||isRightEdge?'ew-resize':'grabbing';
+    });
+  });
+
+  document.addEventListener('mousemove',barDragMove);
+  document.addEventListener('mouseup',barDragEnd);
+}
+
+function barDragMove(e){
+  if(!_barDrag.active)return;
+  var dx=e.clientX-_barDrag.startX;
+  var daysDelta=Math.round(dx/28);
+  if(daysDelta===0)return;
+  var t=tasks.find(function(x){return x.id===_barDrag.taskId;});
+  if(!t)return;
+
+  var origS=new Date(_barDrag.origStart+'T12:00:00');
+  var origE=new Date(_barDrag.origEnd+'T12:00:00');
+
+  if(_barDrag.type==='move'){
+    var newS=addD(origS,daysDelta);
+    var newE=addD(origE,daysDelta);
+    _barDrag.bar.style.left=(parseInt(_barDrag.bar.style.left)+dx-(_barDrag._lastDx||0))+'px';
+    _barDrag._preview={start:ymd(newS),end:ymd(newE)};
+  } else if(_barDrag.type==='resize-start'){
+    var newS2=addD(origS,daysDelta);
+    if(newS2<origE){
+      _barDrag._preview={start:ymd(newS2),end:_barDrag.origEnd};
+    }
+  } else if(_barDrag.type==='resize-end'){
+    var newE2=addD(origE,daysDelta);
+    if(newE2>origS){
+      _barDrag._preview={start:_barDrag.origStart,end:ymd(newE2)};
+    }
+  }
+  _barDrag._lastDx=dx;
+}
+
+function barDragEnd(e){
+  if(!_barDrag.active)return;
+  _barDrag.active=false;
+  document.body.style.userSelect='';
+  document.body.style.cursor='';
+  if(_barDrag.bar)_barDrag.bar.classList.remove('dragging');
+
+  var t=tasks.find(function(x){return x.id===_barDrag.taskId;});
+  if(t&&_barDrag._preview){
+    var prev=_barDrag._preview;
+    if(prev.start!==t.start||prev.end!==t.end){
+      t.start=prev.start;
+      t.end=prev.end;
+      t.updBy=curUser.name;t.updTs=nowStr();
+      addH(t,'fechas',prev.start+' → '+prev.end);
+      fbSaveTask(t);
+      toast('📅 Fechas actualizadas');
+      renderGantt();
+      setTimeout(initBarDrag,100);
+    }
+  }
+  _barDrag={active:false,taskId:null,type:null,startX:0,origStart:null,origEnd:null,bar:null,_preview:null,_lastDx:0};
+}
 
 // ════════════════════════════════════════
 // DETAIL PANEL
