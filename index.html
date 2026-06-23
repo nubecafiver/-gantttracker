@@ -438,6 +438,17 @@ tbody tr:hover{background:rgba(255,255,255,.02);}
       <div class="mf"><label>Fecha inicio</label><input type="date" id="pm-start"></div>
       <div class="mf"><label>Fecha fin</label><input type="date" id="pm-end"></div>
     </div>
+    <div class="mf"><label>Propietario del proyecto</label>
+      <select id="pm-propietario" style="width:100%;padding:8px 10px;">
+        <option value="Alan Osorio Cruz">Alan Osorio Cruz</option>
+        <option value="Valery Lopez Olmedo">Valery Lopez Olmedo</option>
+        <option value="Daniela Gomez Aleluya">Daniela Gomez Aleluya</option>
+        <option value="Rafael Aguila">Rafael Aguila</option>
+        <option value="Roberto Amaya">Roberto Amaya</option>
+        <option value="Usuario1">Usuario1</option>
+        <option value="Usuario2">Usuario2</option>
+      </select>
+    </div>
     <div class="mf-row">
       <div class="mf"><label>Responsable / Líder</label><input type="text" id="pm-owner" placeholder="Nombre del líder..."></div>
       <div class="mf"><label>Estado</label>
@@ -589,6 +600,7 @@ var DAYS=['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
 var BAR_COLORS={U:'#3b82f6',T:'#10b981',P:'#f59e0b',S:'#8b5cf6'};
 var RESP_LABEL={U:'Usuario',T:'TI',P:'Proveedor',S:'Compartido'};
 var PROJ_COLORS=['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899','#14b8a6','#a855f7'];
+var ADMIN_EMAIL='ramaya@cafiver.com.mx';
 var USER_DIR={
   'aosorio@cafiver.com.mx':{name:'Alan Osorio Cruz',color:'#3b82f6'},
   'vlopez@cafiver.com.mx':{name:'Valery Lopez Olmedo',color:'#10b981'},
@@ -793,115 +805,90 @@ function renderGantt(){
   document.getElementById('month-hd').innerHTML=months.map(function(m){return'<div class="month-seg" style="min-width:'+(m.count*28)+'px;width:'+(m.count*28)+'px;">'+m.label+'</div>';}).join('');
   document.getElementById('day-hd').innerHTML=dates.map(function(d){var isT=ymd(d)===ymd(today),isWE=d.getDay()===0||d.getDay()===6;return'<div class="day-col'+(isT?' tod':'')+(isWE?' we':'')+'"><div class="dow">'+DAYS[d.getDay()][0]+'</div><div class="dom">'+d.getDate()+'</div></div>';}).join('');
 
+  var isAdmin=curUser&&curUser.email===ADMIN_EMAIL;
   var filtTasks=respF==='ALL'?tasks:tasks.filter(function(t){return t.resp===respF;});
 
-  // Build structure: projects -> fases -> tasks
-  // Projects ordered by projects array
-  var projNames=[];
-  projects.forEach(function(p){if(tasks.some(function(t){return t.proj===p.name||t.proyecto===p.name;}))projNames.push(p.name);});
-  tasks.forEach(function(t){var pn=t.proyecto||t.proj;if(projNames.indexOf(pn)<0)projNames.push(pn);});
+  // Filter projects by propietario (unless admin)
+  var visibleProjects=projects.filter(function(p){
+    if(isAdmin)return true;
+    return p.propietario===curUser.name||p.createdBy===curUser.name||p.owner===curUser.name;
+  });
 
+  // Build owner groups
+  // For admin: group by propietario
+  // For user: show their projects directly
   var leftHTML='',bodyRows=[];
 
-  // Overall APP row
-  var allPct=tasks.length?Math.round(tasks.reduce(function(a,t){return a+(t.status==='completado'?100:(t.pct||0));},0)/tasks.length):0;
+  // Overall row
+  var myTasks=isAdmin?tasks:tasks.filter(function(t){
+    var p=projects.find(function(x){return x.name===(t.proyecto||t.proj);});
+    return p&&(p.propietario===curUser.name||p.createdBy===curUser.name);
+  });
+  var allPct=myTasks.length?Math.round(myTasks.reduce(function(a,t){return a+(t.status==='completado'?100:(t.pct||0));},0)/myTasks.length):0;
   leftHTML+='<div class="grow grow-overall"><div class="gcell-n"><span class="task-lbl grp-lbl" style="color:var(--c-blue);">📊 APP CAFIVER</span></div><div class="gcell-pct" style="color:var(--c-blue);">'+allPct+'%</div></div>';
   bodyRows.push({type:'overall'});
 
-  projNames.forEach(function(projName){
-    var projTasks=tasks.filter(function(t){return (t.proyecto||t.proj)===projName;});
-    if(!projTasks.length)return;
-    var projFiltTasks=filtTasks.filter(function(t){return (t.proyecto||t.proj)===projName;});
-    var projPct=Math.round(projTasks.reduce(function(a,t){return a+(t.status==='completado'?100:(t.pct||0));},0)/projTasks.length);
-    var isCP=collapsed.has('PROJ:'+projName);
-    var pc=projColor(projName);
+  if(isAdmin){
+    // ADMIN VIEW: Owner → Project → Fase → Task
+    // Get all unique owners
+    var owners=[];
+    projects.forEach(function(p){
+      var o=p.propietario||p.owner||p.createdBy||'Sin asignar';
+      if(owners.indexOf(o)<0)owners.push(o);
+    });
+    // Add owners from tasks that have no project
+    tasks.forEach(function(t){
+      var p=projects.find(function(x){return x.name===(t.proyecto||t.proj);});
+      if(!p){var o='Sin asignar';if(owners.indexOf(o)<0)owners.push(o);}
+    });
 
-    // PROJECT ROW (level 1)
-    leftHTML+='<div class="grow grow-grp" style="background:rgba('+hexToRgb(pc)+',0.08);">'+
-      '<div class="gcell-n">'+
-      '<button class="gtog'+(isCP?'':' open')+'" onclick="toggleGrp(\'PROJ:'+projName.replace(/'/g,"\\'")+'\')">▶</button>'+
-      '<div class="g-dot" style="background:'+pc+';box-shadow:0 0 6px '+pc+'44;"></div>'+
-      '<span class="task-lbl grp-lbl" style="font-size:13px;">'+projName+'</span>'+
-      '</div>'+
-      '<div class="gcell-pct" style="color:'+pc+';">'+projPct+'%</div></div>';
-    bodyRows.push({type:'proj',name:projName,color:pc});
+    owners.forEach(function(ownerName){
+      var ownerProjs=projects.filter(function(p){return (p.propietario||p.owner||p.createdBy||'Sin asignar')===ownerName;});
+      if(!ownerProjs.length)return;
+      var ownerTasks=tasks.filter(function(t){return ownerProjs.some(function(p){return p.name===(t.proyecto||t.proj);});});
+      if(!ownerTasks.length&&filtTasks!==tasks)return;
+      var ownerPct=ownerTasks.length?Math.round(ownerTasks.reduce(function(a,t){return a+(t.status==='completado'?100:(t.pct||0));},0)/ownerTasks.length):0;
+      var isOwnerC=collapsed.has('OWNER:'+ownerName);
+      // Get user color
+      var ownerEmail=Object.keys(USER_DIR).find(function(e){return USER_DIR[e].name===ownerName;});
+      var ownerColor=ownerEmail?USER_DIR[ownerEmail].color:'#3b82f6';
+      var ownerIni=ownerName.split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);
 
-    if(!isCP){
-      // Get fases for this project
-      var fasList=fases.filter(function(f){return f.proyecto===projName;});
-      // Also get unique fase names from tasks
-      var faseNames=[];
-      fasList.forEach(function(f){if(faseNames.indexOf(f.nombre)<0)faseNames.push(f.nombre);});
-      projTasks.forEach(function(t){if(t.fase&&faseNames.indexOf(t.fase)<0)faseNames.push(t.fase);});
-      // Tasks without fase
-      var sinFase=projTasks.filter(function(t){return !t.fase;});
+      // OWNER ROW (level 0)
+      leftHTML+='<div class="grow" style="background:var(--c-bg);height:40px;min-height:40px;max-height:40px;">'+
+        '<div class="gcell-n">'+
+        '<button class="gtog'+(isOwnerC?'':' open')+'" onclick="toggleGrp(\'OWNER:'+ownerName.replace(/'/g,"\\'")+'\')">▶</button>'+
+        '<div style="width:22px;height:22px;border-radius:50%;background:'+ownerColor+'33;color:'+ownerColor+';display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;">'+ownerIni+'</div>'+
+        '<span class="task-lbl" style="font-weight:700;font-size:13px;color:'+ownerColor+';">'+ownerName+'</span>'+
+        '</div>'+
+        '<div class="gcell-pct" style="color:'+ownerColor+';">'+ownerPct+'%</div></div>';
+      bodyRows.push({type:'owner',name:ownerName,color:ownerColor});
 
-      if(faseNames.length>0){
-        faseNames.forEach(function(faseName){
-          var faseTasks=projTasks.filter(function(t){return t.fase===faseName;});
-          var faseFilt=projFiltTasks.filter(function(t){return t.fase===faseName;});
-          if(!faseTasks.length)return;
-          var fasePct=Math.round(faseTasks.reduce(function(a,t){return a+(t.status==='completado'?100:(t.pct||0));},0)/faseTasks.length);
-          var isCF=collapsed.has('FASE:'+projName+':'+faseName);
-
-          // FASE ROW (level 2)
-          leftHTML+='<div class="grow grow-grp" style="background:rgba('+hexToRgb(pc)+',0.04);">'+
-            '<div class="gcell-n" style="padding-left:20px;">'+
-            '<button class="gtog'+(isCF?'':' open')+'" onclick="toggleGrp(\'FASE:'+projName.replace(/'/g,"\\'")+'|'+faseName.replace(/'/g,"\\'")+'\')">▶</button>'+
-            '<span style="font-size:10px;margin-right:4px;color:'+pc+';">⬡</span>'+
-            '<span class="task-lbl" style="font-weight:600;font-size:11px;color:var(--c-text2);">'+faseName+'</span>'+
-            '</div>'+
-            '<div class="gcell-pct" style="color:var(--c-text2);font-size:11px;">'+fasePct+'%</div></div>';
-          bodyRows.push({type:'fase',name:faseName,proj:projName,color:pc});
-
-          if(!isCF){
-            faseFilt.forEach(function(t){
-              var ep=t.status==='completado'?100:(t.pct||0);
-              var pc2=ep===100?'var(--c-green)':ep>50?'var(--c-blue)':'var(--c-yellow)';
-              leftHTML+='<div class="grow" id="lr_'+t.id+'" ondblclick="openPanel(\''+t.id+'\')" onclick="selRow(\''+t.id+'\')">'+
-                '<div class="gcell-n" style="padding-left:38px;">'+semDot(t.sem||'g')+
-                '<span class="task-lbl" title="'+t.name+'">'+(t.fav?'⭐ ':'')+t.name+'</span>'+
-                '</div><div class="gcell-pct" style="color:'+pc2+'">'+ep+'%</div></div>';
-              bodyRows.push({type:'task',t:t});
-            });
-          }
-        });
-        // Tasks without fase inside this project
-        if(sinFase.length){
-          var sinFaseFilt=projFiltTasks.filter(function(t){return !t.fase;});
-          sinFaseFilt.forEach(function(t){
-            var ep=t.status==='completado'?100:(t.pct||0);
-            var pc2=ep===100?'var(--c-green)':ep>50?'var(--c-blue)':'var(--c-yellow)';
-            leftHTML+='<div class="grow" id="lr_'+t.id+'" ondblclick="openPanel(\''+t.id+'\')" onclick="selRow(\''+t.id+'\')">'+
-              '<div class="gcell-n" style="padding-left:22px;">'+semDot(t.sem||'g')+
-              '<span class="task-lbl" title="'+t.name+'">'+(t.fav?'⭐ ':'')+t.name+'</span>'+
-              '</div><div class="gcell-pct" style="color:'+pc2+'">'+ep+'%</div></div>';
-            bodyRows.push({type:'task',t:t});
-          });
-        }
-      } else {
-        // No fases — show tasks directly under project
-        projFiltTasks.forEach(function(t){
-          var ep=t.status==='completado'?100:(t.pct||0);
-          var pc2=ep===100?'var(--c-green)':ep>50?'var(--c-blue)':'var(--c-yellow)';
-          leftHTML+='<div class="grow" id="lr_'+t.id+'" ondblclick="openPanel(\''+t.id+'\')" onclick="selRow(\''+t.id+'\')">'+
-            '<div class="gcell-n" style="padding-left:22px;">'+semDot(t.sem||'g')+
-            '<span class="task-lbl" title="'+t.name+'">'+(t.fav?'⭐ ':'')+t.name+'</span>'+
-            '</div><div class="gcell-pct" style="color:'+pc2+'">'+ep+'%</div></div>';
-          bodyRows.push({type:'task',t:t});
-        });
+      if(!isOwnerC){
+        renderProjLevel(ownerProjs,filtTasks,leftHTML,bodyRows,dates,today);
+        // Update leftHTML from function
+        var result=buildProjRows(ownerProjs,filtTasks,dates,today,28);
+        leftHTML+=result.left;
+        result.rows.forEach(function(r){bodyRows.push(r);});
       }
-    }
-  });
+    });
+  } else {
+    // USER VIEW: Project → Fase → Task (their projects only)
+    var result=buildProjRows(visibleProjects,filtTasks,dates,today,8);
+    leftHTML+=result.left;
+    result.rows.forEach(function(r){bodyRows.push(r);});
+  }
 
   document.getElementById('gl-body').innerHTML=leftHTML;
   var cb=document.getElementById('cal-b');cb.style.width=(ganttDays*28)+'px';cb.innerHTML='';
 
   bodyRows.forEach(function(row){
     var rd=document.createElement('div');
-    rd.className='cal-row'+(row.type==='proj'||row.type==='fase'||row.type==='overall'?' grp-r':'');
-    if(row.type==='proj') rd.style.background='rgba('+hexToRgb(row.color||'#3b82f6')+',0.05)';
-    dates.forEach(function(d){var isWE=d.getDay()===0||d.getDay()===6,isT=ymd(d)===ymd(today);var dc=document.createElement('div');dc.className='dcell'+(isWE?' we':'')+(isT?' tod':'');rd.appendChild(dc);});
+    if(row.type==='owner') rd.style.height='40px';
+    rd.className='cal-row'+(row.type==='proj'||row.type==='fase'||row.type==='overall'||row.type==='owner'?' grp-r':'');
+    if(row.type==='proj')rd.style.background='rgba('+hexToRgb(row.color||'#3b82f6')+',0.05)';
+    if(row.type==='owner')rd.style.background='var(--c-bg)';
+    dates.forEach(function(d){var isWE=d.getDay()===0||d.getDay()===6,isT=ymd(d)===ymd(today);var dc=document.createElement('div');dc.className='dcell'+(isWE?' we':'')+(isT?' tod':'');if(row.type==='owner')dc.style.height='40px';rd.appendChild(dc);});
     if(row.type==='task'&&row.t.start&&row.t.end){
       var t=row.t,ts=pd(t.start),te=pd(t.end),s0=pd(ymd(ganttStart));
       var left=dBetween(s0,ts),width=Math.max(1,dBetween(ts,te)+1);
@@ -929,9 +916,94 @@ function renderGantt(){
   var _s=false;
   bw.onscroll=function(){if(_s)return;_s=true;gb.scrollTop=bw.scrollTop;document.getElementById('month-hd').scrollLeft=bw.scrollLeft;document.getElementById('day-hd').scrollLeft=bw.scrollLeft;setTimeout(function(){_s=false;},0);};
   gb.onscroll=function(){if(_s)return;_s=true;bw.scrollTop=gb.scrollTop;setTimeout(function(){_s=false;},0);};
-  // Init drag & drop after render
   setTimeout(function(){initRowDrag();initBarDrag();},150);
 }
+
+function buildProjRows(projs,filtTasks,dates,today,indentBase){
+  var leftHTML='',rows=[];
+  projs.forEach(function(proj){
+    var projName=proj.name;
+    var projTasks=tasks.filter(function(t){return(t.proyecto||t.proj)===projName;});
+    if(!projTasks.length)return;
+    var projFiltTasks=filtTasks.filter(function(t){return(t.proyecto||t.proj)===projName;});
+    var projPct=Math.round(projTasks.reduce(function(a,t){return a+(t.status==='completado'?100:(t.pct||0));},0)/projTasks.length);
+    var isCP=collapsed.has('PROJ:'+projName);
+    var pc=proj.color||projColor(projName);
+    var indent=indentBase;
+
+    // PROJECT ROW (level 1)
+    leftHTML+='<div class="grow grow-grp" style="background:rgba('+hexToRgb(pc)+',0.08);">'+
+      '<div class="gcell-n" style="padding-left:'+indent+'px;">'+
+      '<button class="gtog'+(isCP?'':' open')+'" onclick="toggleGrp(\'PROJ:'+projName.replace(/'/g,"\\'")+'\')">▶</button>'+
+      '<div class="g-dot" style="background:'+pc+';box-shadow:0 0 6px '+pc+'44;"></div>'+
+      '<span class="task-lbl grp-lbl" style="font-size:13px;">'+projName+'</span>'+
+      '</div>'+
+      '<div class="gcell-pct" style="color:'+pc+';">'+projPct+'%</div></div>';
+    rows.push({type:'proj',name:projName,color:pc});
+
+    if(!isCP){
+      // Get fases
+      var faseNames=[];
+      fases.filter(function(f){return f.proyecto===projName;}).forEach(function(f){if(faseNames.indexOf(f.nombre)<0)faseNames.push(f.nombre);});
+      projTasks.forEach(function(t){if(t.fase&&faseNames.indexOf(t.fase)<0)faseNames.push(t.fase);});
+      var sinFase=projFiltTasks.filter(function(t){return !t.fase;});
+
+      if(faseNames.length>0){
+        faseNames.forEach(function(faseName){
+          var faseTasks=projTasks.filter(function(t){return t.fase===faseName;});
+          var faseFilt=projFiltTasks.filter(function(t){return t.fase===faseName;});
+          if(!faseTasks.length)return;
+          var fasePct=Math.round(faseTasks.reduce(function(a,t){return a+(t.status==='completado'?100:(t.pct||0));},0)/faseTasks.length);
+          var isCF=collapsed.has('FASE:'+projName+'|'+faseName);
+
+          // FASE ROW (level 2)
+          leftHTML+='<div class="grow grow-grp" style="background:rgba('+hexToRgb(pc)+',0.04);">'+
+            '<div class="gcell-n" style="padding-left:'+(indent+18)+'px;">'+
+            '<button class="gtog'+(isCF?'':' open')+'" onclick="toggleGrp(\'FASE:'+projName.replace(/'/g,"\\'")+'|'+faseName.replace(/'/g,"\\'")+'\')">▶</button>'+
+            '<span style="font-size:11px;margin-right:4px;color:'+pc+';">⬡</span>'+
+            '<span class="task-lbl" style="font-weight:600;font-size:11px;color:var(--c-text2);">'+faseName+'</span>'+
+            '</div>'+
+            '<div class="gcell-pct" style="color:var(--c-text2);font-size:11px;">'+fasePct+'%</div></div>';
+          rows.push({type:'fase',name:faseName,proj:projName,color:pc});
+
+          if(!isCF){
+            faseFilt.forEach(function(t){
+              var ep=t.status==='completado'?100:(t.pct||0);
+              var pc2=ep===100?'var(--c-green)':ep>50?'var(--c-blue)':'var(--c-yellow)';
+              leftHTML+='<div class="grow" id="lr_'+t.id+'" ondblclick="openPanel(\''+t.id+'\')" onclick="selRow(\''+t.id+'\')">'+
+                '<div class="gcell-n" style="padding-left:'+(indent+36)+'px;">'+semDot(t.sem||'g')+
+                '<span class="task-lbl" title="'+t.name+'">'+(t.fav?'⭐ ':'')+t.name+'</span>'+
+                '</div><div class="gcell-pct" style="color:'+pc2+'">'+ep+'%</div></div>';
+              rows.push({type:'task',t:t});
+            });
+          }
+        });
+        // Tasks without fase
+        sinFase.forEach(function(t){
+          var ep=t.status==='completado'?100:(t.pct||0);
+          var pc2=ep===100?'var(--c-green)':ep>50?'var(--c-blue)':'var(--c-yellow)';
+          leftHTML+='<div class="grow" id="lr_'+t.id+'" ondblclick="openPanel(\''+t.id+'\')" onclick="selRow(\''+t.id+'\')">'+
+            '<div class="gcell-n" style="padding-left:'+(indent+22)+'px;">'+semDot(t.sem||'g')+
+            '<span class="task-lbl" title="'+t.name+'">'+(t.fav?'⭐ ':'')+t.name+'</span>'+
+            '</div><div class="gcell-pct" style="color:'+pc2+'">'+ep+'%</div></div>';
+          rows.push({type:'task',t:t});
+        });
+      } else {
+        projFiltTasks.forEach(function(t){
+          var ep=t.status==='completado'?100:(t.pct||0);
+          var pc2=ep===100?'var(--c-green)':ep>50?'var(--c-blue)':'var(--c-yellow)';
+          leftHTML+='<div class="grow" id="lr_'+t.id+'" ondblclick="openPanel(\''+t.id+'\')" onclick="selRow(\''+t.id+'\')">'+
+            '<div class="gcell-n" style="padding-left:'+(indent+22)+'px;">'+semDot(t.sem||'g')+
+            '<span class="task-lbl" title="'+t.name+'">'+(t.fav?'⭐ ':'')+t.name+'</span>'+
+            '</div><div class="gcell-pct" style="color:'+pc2+'">'+ep+'%</div></div>';
+          rows.push({type:'task',t:t});
+        });
+      }
+    }
+  });
+  return {left:leftHTML,rows:rows};
+}
+function renderProjLevel(){}
 function hexToRgb(hex){
   var r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
   return r+','+g+','+b;
@@ -1304,6 +1376,7 @@ function openNewProject(){
   document.getElementById('proj-modal-title').textContent='Nuevo proyecto';
   document.getElementById('pm-name').value='';document.getElementById('pm-desc').value='';
   document.getElementById('pm-owner').value=curUser?curUser.name:'';
+  document.getElementById('pm-propietario').value=curUser?curUser.name:'Roberto Amaya';
   document.getElementById('pm-status').value='activo';
   document.getElementById('pm-start').value=new Date().toISOString().slice(0,10);
   document.getElementById('pm-end').value='';
@@ -1327,6 +1400,7 @@ function saveProjModal(){
     color:selProjColor_,status:document.getElementById('pm-status').value,
     start:document.getElementById('pm-start').value,end:document.getElementById('pm-end').value,
     owner:document.getElementById('pm-owner').value.trim(),
+    propietario:document.getElementById('pm-propietario').value,
     createdBy:curUser?curUser.name:'',updTs:nowStr()};
   db.collection('projects').doc(p.id).set(p)
     .then(function(){closeProjModal();toast(editProjId?'✅ Proyecto actualizado':'✅ Proyecto creado');})
@@ -1341,14 +1415,19 @@ function deleteProject(pid){
 }
 function renderProjects(){
   var wrap=document.getElementById('projects-inner');if(!wrap)return;
+  var isAdmin=curUser&&curUser.email===ADMIN_EMAIL;
+  var visibleProjects=projects.filter(function(p){
+    if(isAdmin)return true;
+    return p.propietario===curUser.name||p.createdBy===curUser.name||p.owner===curUser.name;
+  });
   var sbClass={activo:'sb-activo','en pausa':'sb-pausa',completado:'sb-completado',cancelado:'sb-cancelado'};
   var sbLbl={activo:'Activo','en pausa':'En pausa',completado:'Completado',cancelado:'Cancelado'};
   var html='<div class="page-hd"><div><h2>Proyectos</h2><p>Gestiona y da seguimiento a todos los proyectos</p></div><button class="btn btn-primary" onclick="openNewProject()">+ Nuevo proyecto</button></div>';
-  if(!projects.length){
+  if(!visibleProjects.length){
     html+='<div style="text-align:center;padding:4rem;color:var(--c-text3);"><div style="font-size:48px;margin-bottom:1rem;">📁</div><div style="font-size:16px;font-weight:600;margin-bottom:8px;">Sin proyectos aún</div><div style="font-size:13px;margin-bottom:1.5rem;">Crea tu primer proyecto para comenzar</div><button class="btn btn-primary" onclick="openNewProject()">+ Crear proyecto</button></div>';
   }else{
     html+='<div class="proj-grid">';
-    projects.forEach(function(p){
+    visibleProjects.forEach(function(p){
       var tc=tasks.filter(function(t){return t.proj===p.name;}).length;
       var dc=tasks.filter(function(t){return t.proj===p.name&&t.status==='completado';}).length;
       var pct=tc?Math.round(dc/tc*100):0;
