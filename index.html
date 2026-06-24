@@ -104,10 +104,10 @@ select option{background:var(--c-bg3);}
 .gh-left-inner{height:54px;min-height:54px;max-height:54px;box-sizing:border-box;display:grid;grid-template-columns:1fr 70px;align-items:center;padding:0 10px;}
 .gh-left-inner span{font-size:10px;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:.06em;}
 .gh-right{flex:1;overflow:hidden;}
-.month-hd{height:22px;display:flex;background:var(--c-bg2);border-bottom:1px solid var(--c-border);}
+.month-hd{height:20px;min-height:20px;max-height:20px;display:flex;background:#F3F4F6;border-bottom:1px solid #D1D5DB;}
 .month-seg{display:flex;align-items:center;font-size:10px;font-weight:600;color:#9CA3AF;border-right:1px solid var(--c-border);padding:0 8px;white-space:nowrap;overflow:hidden;text-transform:uppercase;letter-spacing:.04em;}
-.day-hd{display:flex;height:32px;background:var(--c-bg2);}
-.day-col{width:28px;min-width:28px;border-right:1px solid var(--c-border2);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;}
+.day-hd{display:flex;height:34px;min-height:34px;max-height:34px;background:#F9FAFB;border-bottom:1.5px solid #D1D5DB;}
+.day-col{width:28px;min-width:28px;border-right:1px solid #D1D5DB;display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;}
 .day-col .dow{font-size:8px;color:var(--c-text3);font-weight:500;line-height:1;}
 .day-col .dom{font-size:10px;font-weight:600;color:var(--c-text2);line-height:1.6;}
 .day-col.tod .dom{background:#1B4FD8;color:#fff;border-radius:50%;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:9px;}
@@ -888,14 +888,15 @@ function renderGantt(){
     if(row.type==='owner') 
     rd.className='cal-row'+(row.type==='proj'||row.type==='fase'||row.type==='overall'||row.type==='owner'?' grp-r':'');
     if(row.type==='proj')rd.style.background='rgba('+hexToRgb(row.color||'#3b82f6')+',0.05)';
-    if(row.type==='owner')rd.style.background='var(--c-bg)';
+    if(row.type==='owner'){rd.style.background='#F3F4F6';rd.style.borderBottom='1.5px solid #D1D5DB';}
+    if(row.type==='proj')rd.style.background='#F8FAFF';
     dates.forEach(function(d){var isWE=d.getDay()===0||d.getDay()===6,isT=ymd(d)===ymd(today);var dc=document.createElement('div');dc.className='dcell'+(isWE?' we':'')+(isT?' tod':'');if(row.type==='owner')rd.appendChild(dc);});
     if(row.type==='task'&&row.t.start&&row.t.end){
       var t=row.t,ts=pd(t.start),te=pd(t.end),s0=pd(ymd(ganttStart));
       var left=dBetween(s0,ts),width=Math.max(1,dBetween(ts,te)+1);
       var lPx=left*28,wPx=width*28-2;
       if(lPx<ganttDays*28&&lPx+wPx>0){
-        var bc=BAR_COLORS[t.resp]||'#3b82f6',ep=t.status==='completado'?100:(t.pct||0);
+        var bc=BAR_COLORS[t.resp]||'#1B4FD8',ep=t.status==='completado'?100:(t.pct||0);
         var bar=document.createElement('div');bar.className='gbar';
         bar.style.left=Math.max(0,lPx)+'px';bar.style.width=wPx+'px';bar.title=t.name+' — '+ep+'%';
         var isAtrasado=(ep===0&&t.sem==='r');
@@ -973,7 +974,7 @@ function buildProjRows(projs,filtTasks,dates,today,indentBase){
           if(!isCF){
             faseFilt.forEach(function(t){
               var ep=t.status==='completado'?100:(t.pct||0);
-              var pc2=ep===100?'var(--c-green)':ep>50?'var(--c-blue)':'var(--c-yellow)';
+              var pc2=ep===100?'#059669':ep>=50?'#1B4FD8':ep>0?'#D97706':'#DC2626';
               leftHTML+='<div class="grow" id="lr_'+t.id+'" ondblclick="openPanel(\''+t.id+'\')" onclick="selRow(\''+t.id+'\')">'+
                 '<div class="gcell-n" style="padding-left:'+(indent+36)+'px;">'+semDot(t.sem||'g')+
                 '<span class="task-lbl" title="'+t.name+'">'+(t.fav?'⭐ ':'')+t.name+'</span>'+
@@ -985,7 +986,7 @@ function buildProjRows(projs,filtTasks,dates,today,indentBase){
         // Tasks without fase
         sinFase.forEach(function(t){
           var ep=t.status==='completado'?100:(t.pct||0);
-          var pc2=ep===100?'var(--c-green)':ep>50?'var(--c-blue)':'var(--c-yellow)';
+          var pc2=ep===100?'#059669':ep>=50?'#1B4FD8':ep>0?'#D97706':'#DC2626';
           leftHTML+='<div class="grow" id="lr_'+t.id+'" ondblclick="openPanel(\''+t.id+'\')" onclick="selRow(\''+t.id+'\')">'+
             '<div class="gcell-n" style="padding-left:'+(indent+22)+'px;">'+semDot(t.sem||'g')+
             '<span class="task-lbl" title="'+t.name+'">'+(t.fav?'⭐ ':'')+t.name+'</span>'+
@@ -995,7 +996,7 @@ function buildProjRows(projs,filtTasks,dates,today,indentBase){
       } else {
         projFiltTasks.forEach(function(t){
           var ep=t.status==='completado'?100:(t.pct||0);
-          var pc2=ep===100?'var(--c-green)':ep>50?'var(--c-blue)':'var(--c-yellow)';
+          var pc2=ep===100?'#059669':ep>=50?'#1B4FD8':ep>0?'#D97706':'#DC2626';
           leftHTML+='<div class="grow" id="lr_'+t.id+'" ondblclick="openPanel(\''+t.id+'\')" onclick="selRow(\''+t.id+'\')">'+
             '<div class="gcell-n" style="padding-left:'+(indent+22)+'px;">'+semDot(t.sem||'g')+
             '<span class="task-lbl" title="'+t.name+'">'+(t.fav?'⭐ ':'')+t.name+'</span>'+
