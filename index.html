@@ -841,7 +841,7 @@ function renderGantt(){
   var leftHTML='';
   rows.forEach(function(row){
     if(row.type==='overall'){
-      leftHTML+='<div class="grow grow-overall"><div class="gcell-n"><span class="task-lbl grp-lbl" style="color:#1B4FD8;">📊 APP CAFIVER</span></div><div class="gcell-pct" style="color:#1B4FD8;">'+row.pct+'%</div></div>';
+      leftHTML+='<div class="grow grow-overall"><div class="gcell-n"><span class="task-lbl grp-lbl" style="color:#1B4FD8;">📊 Proyectos CAFIVER</span></div><div class="gcell-pct" style="color:#1B4FD8;">'+row.pct+'%</div></div>';
     } else if(row.type==='owner'){
       var ini=row.name.split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);
       leftHTML+='<div class="grow" style="background:#F3F4F6;border-bottom:1.5px solid #D1D5DB;">'+
