@@ -1475,6 +1475,12 @@ function openEditProject(pid){
 function closeProjModal(){document.getElementById('proj-modal').classList.add('hidden');editProjId=null;}
 function saveProjModal(){
   var name=document.getElementById('pm-name').value.trim();if(!name){toast('⚠️ El nombre es obligatorio.');return;}
+  // CAPTURE old name BEFORE any Firebase update
+  var oldName=null;
+  if(editProjId){
+    var oldProj=projects.find(function(x){return x.id===editProjId;});
+    if(oldProj) oldName=oldProj.name;
+  }
   var p={id:editProjId||uid(),name:name,desc:document.getElementById('pm-desc').value.trim(),
     color:selProjColor_,status:document.getElementById('pm-status').value,
     start:document.getElementById('pm-start').value,end:document.getElementById('pm-end').value,
@@ -1483,26 +1489,22 @@ function saveProjModal(){
     createdBy:curUser?curUser.name:'',updTs:nowStr()};
   db.collection('projects').doc(p.id).set(p)
     .then(function(){
-      if(editProjId){
-        var oldProj=projects.find(function(x){return x.id===editProjId;});
-        if(oldProj&&oldProj.name!==p.name){
-          // Name changed — update all tasks referencing old name
-          var affected=tasks.filter(function(t){return t.proj===oldProj.name||t.proyecto===oldProj.name;});
-          var faseAffected=fases.filter(function(f){return f.proyecto===oldProj.name;});
-          var total=affected.length+faseAffected.length;
-          if(total>0){
-            var batch=db.batch();
-            affected.forEach(function(t){batch.update(db.collection('tasks').doc(t.id),{proj:p.name,proyecto:p.name});});
-            faseAffected.forEach(function(f){batch.update(db.collection('fases').doc(f.id),{proyecto:p.name});});
-            batch.commit()
-              .then(function(){closeProjModal();toast('✅ Proyecto renombrado — '+affected.length+' tareas y '+faseAffected.length+' fases actualizadas');})
-              .catch(function(e){closeProjModal();toast('⚠️ Error actualizando referencias: '+e.message);});
-          } else {
-            closeProjModal();toast('✅ Proyecto actualizado');
-          }
+      if(editProjId && oldName && oldName !== name){
+        // Name changed — use oldName captured BEFORE Firebase updated the local array
+        var affected=tasks.filter(function(t){return t.proj===oldName||t.proyecto===oldName;});
+        var faseAffected=fases.filter(function(f){return f.proyecto===oldName;});
+        if(affected.length>0||faseAffected.length>0){
+          var batch=db.batch();
+          affected.forEach(function(t){batch.update(db.collection('tasks').doc(t.id),{proj:name,proyecto:name});});
+          faseAffected.forEach(function(f){batch.update(db.collection('fases').doc(f.id),{proyecto:name});});
+          batch.commit()
+            .then(function(){closeProjModal();toast('✅ Renombrado — '+affected.length+' tareas y '+faseAffected.length+' fases actualizadas');})
+            .catch(function(e){closeProjModal();toast('⚠️ Error actualizando referencias: '+e.message);});
         } else {
           closeProjModal();toast('✅ Proyecto actualizado');
         }
+      } else if(editProjId){
+        closeProjModal();toast('✅ Proyecto actualizado');
       } else {
         closeProjModal();toast('✅ Proyecto creado');
       }
