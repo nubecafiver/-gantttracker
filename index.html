@@ -800,7 +800,6 @@ function renderGantt(){
   var dl=document.getElementById('date-range-lbl');
   if(dl)dl.textContent=ganttStart.toLocaleDateString('es-MX',{month:'short',day:'numeric',year:'numeric'})+' — '+dates[dates.length-1].toLocaleDateString('es-MX',{month:'short',day:'numeric',year:'numeric'});
 
-  // Month headers
   var months=[];
   dates.forEach(function(d){var k=d.getFullYear()+'-'+d.getMonth();if(!months.length||months[months.length-1].key!==k)months.push({key:k,label:MONTHS[d.getMonth()]+' '+d.getFullYear(),count:1});else months[months.length-1].count++;});
   document.getElementById('month-hd').innerHTML=months.map(function(m){return'<div class="month-seg" style="min-width:'+(m.count*28)+'px;width:'+(m.count*28)+'px;">'+m.label+'</div>';}).join('');
@@ -808,106 +807,117 @@ function renderGantt(){
 
   var isAdmin=curUser&&curUser.email===ADMIN_EMAIL;
   var filtTasks=respF==='ALL'?tasks:tasks.filter(function(t){return t.resp===respF;});
-
-  // Filter projects by propietario (unless admin)
   var visibleProjects=projects.filter(function(p){
     if(isAdmin)return true;
     return p.propietario===curUser.name||p.createdBy===curUser.name||p.owner===curUser.name;
   });
 
-  // Build owner groups
-  // For admin: group by propietario
-  // For user: show their projects directly
-  var leftHTML='',bodyRows=[];
+  // rows = [{type, data}] — single source of truth for BOTH panels
+  var rows=[];
 
   // Overall row
-  var myTasks=isAdmin?tasks:tasks.filter(function(t){
-    var p=projects.find(function(x){return x.name===(t.proyecto||t.proj);});
-    return p&&(p.propietario===curUser.name||p.createdBy===curUser.name);
-  });
-  var allPct=myTasks.length?Math.round(myTasks.reduce(function(a,t){return a+(t.status==='completado'?100:(t.pct||0));},0)/myTasks.length):0;
-  leftHTML+='<div class="grow grow-overall"><div class="gcell-n"><span class="task-lbl grp-lbl" style="color:var(--c-blue);">📊 APP CAFIVER</span></div><div class="gcell-pct" style="color:var(--c-blue);">'+allPct+'%</div></div>';
-  bodyRows.push({type:'overall'});
+  var allPct=tasks.length?Math.round(tasks.reduce(function(a,t){return a+(t.status==='completado'?100:(t.pct||0));},0)/tasks.length):0;
+  rows.push({type:'overall',pct:allPct});
 
   if(isAdmin){
-    // ADMIN VIEW: Owner → Project → Fase → Task
-    // Get all unique owners
     var owners=[];
-    projects.forEach(function(p){
-      var o=p.propietario||p.owner||p.createdBy||'Sin asignar';
-      if(owners.indexOf(o)<0)owners.push(o);
-    });
-    // Add owners from tasks that have no project
-    tasks.forEach(function(t){
-      var p=projects.find(function(x){return x.name===(t.proyecto||t.proj);});
-      if(!p){var o='Sin asignar';if(owners.indexOf(o)<0)owners.push(o);}
-    });
-
+    visibleProjects.forEach(function(p){var o=p.propietario||p.owner||p.createdBy||'Sin asignar';if(owners.indexOf(o)<0)owners.push(o);});
     owners.forEach(function(ownerName){
-      var ownerProjs=projects.filter(function(p){return (p.propietario||p.owner||p.createdBy||'Sin asignar')===ownerName;});
+      var ownerProjs=visibleProjects.filter(function(p){return(p.propietario||p.owner||p.createdBy||'Sin asignar')===ownerName;});
       if(!ownerProjs.length)return;
-      var ownerTasks=tasks.filter(function(t){return ownerProjs.some(function(p){return p.name===(t.proyecto||t.proj);});});
-      if(!ownerTasks.length&&filtTasks!==tasks)return;
-      var ownerPct=ownerTasks.length?Math.round(ownerTasks.reduce(function(a,t){return a+(t.status==='completado'?100:(t.pct||0));},0)/ownerTasks.length):0;
-      var isOwnerC=collapsed.has('OWNER:'+ownerName);
-      // Get user color
       var ownerEmail=Object.keys(USER_DIR).find(function(e){return USER_DIR[e].name===ownerName;});
-      var ownerColor=ownerEmail?USER_DIR[ownerEmail].color:'#3b82f6';
-      var ownerIni=ownerName.split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);
-
-      // OWNER ROW (level 0)
-      leftHTML+='<div class="grow" style="background:#F3F4F6;border-bottom:1.5px solid #D1D5DB;">'+
-        '<div class="gcell-n">'+
-        '<button class="gtog'+(isOwnerC?'':' open')+'" onclick="toggleGrp(\'OWNER:'+ownerName.replace(/'/g,"\\'")+'\')">▶</button>'+
-        '<div style="width:22px;height:22px;border-radius:50%;background:'+ownerColor+'33;color:'+ownerColor+';display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;">'+ownerIni+'</div>'+
-        '<span class="task-lbl" style="font-weight:700;font-size:13px;color:'+ownerColor+';">'+ownerName+'</span>'+
-        '</div>'+
-        '<div class="gcell-pct" style="color:'+ownerColor+';">'+ownerPct+'%</div></div>';
-      bodyRows.push({type:'owner',name:ownerName,color:ownerColor});
-
-      if(!isOwnerC){
-        renderProjLevel(ownerProjs,filtTasks,leftHTML,bodyRows,dates,today);
-        // Update leftHTML from function
-        var result=buildProjRows(ownerProjs,filtTasks,dates,today,28);
-        leftHTML+=result.left;
-        result.rows.forEach(function(r){bodyRows.push(r);});
-      }
+      var ownerColor=ownerEmail?USER_DIR[ownerEmail].color:'#1B4FD8';
+      var ownerTasks=tasks.filter(function(t){return ownerProjs.some(function(p){return p.name===(t.proyecto||t.proj);});});
+      var ownerPct=ownerTasks.length?Math.round(ownerTasks.reduce(function(a,t){return a+(t.status==='completado'?100:(t.pct||0));},0)/ownerTasks.length):0;
+      var isC=collapsed.has('OWNER:'+ownerName);
+      rows.push({type:'owner',name:ownerName,color:ownerColor,pct:ownerPct,collapsed:isC});
+      if(!isC) addProjRows(rows,ownerProjs,filtTasks,28);
     });
   } else {
-    // USER VIEW: Project → Fase → Task (their projects only)
-    var result=buildProjRows(visibleProjects,filtTasks,dates,today,8);
-    leftHTML+=result.left;
-    result.rows.forEach(function(r){bodyRows.push(r);});
+    addProjRows(rows,visibleProjects,filtTasks,8);
   }
 
+  // Build LEFT panel HTML from rows
+  var leftHTML='';
+  rows.forEach(function(row){
+    if(row.type==='overall'){
+      leftHTML+='<div class="grow grow-overall"><div class="gcell-n"><span class="task-lbl grp-lbl" style="color:#1B4FD8;">📊 APP CAFIVER</span></div><div class="gcell-pct" style="color:#1B4FD8;">'+row.pct+'%</div></div>';
+    } else if(row.type==='owner'){
+      var ini=row.name.split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);
+      leftHTML+='<div class="grow" style="background:#F3F4F6;border-bottom:1.5px solid #D1D5DB;">'+
+        '<div class="gcell-n">'+
+        '<button class="gtog'+(row.collapsed?'':' open')+'" onclick="toggleGrp(\'OWNER:'+row.name.replace(/'/g,"\\'")+'\')">▶</button>'+
+        '<div style="width:22px;height:22px;border-radius:50%;background:'+row.color+'22;color:'+row.color+';display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0;">'+ini+'</div>'+
+        '<span class="task-lbl" style="font-weight:700;font-size:13px;color:'+row.color+';">'+row.name+'</span>'+
+        '</div><div class="gcell-pct" style="color:'+row.color+';">'+row.pct+'%</div></div>';
+    } else if(row.type==='proj'){
+      leftHTML+='<div class="grow grow-grp" style="background:rgba('+hexToRgb(row.color)+',0.06);padding-left:'+row.indent+'px;">'+
+        '<div class="gcell-n">'+
+        '<button class="gtog'+(row.collapsed?'':' open')+'" onclick="toggleGrp(\'PROJ:'+row.name.replace(/'/g,"\\'")+'\')">▶</button>'+
+        '<div class="g-dot" style="background:'+row.color+';flex-shrink:0;"></div>'+
+        '<span class="task-lbl grp-lbl" style="font-size:13px;">'+row.name+'</span>'+
+        '</div><div class="gcell-pct" style="color:'+row.color+';">'+row.pct+'%</div></div>';
+    } else if(row.type==='fase'){
+      leftHTML+='<div class="grow grow-grp" style="background:#FAFAFA;padding-left:'+row.indent+'px;">'+
+        '<div class="gcell-n">'+
+        '<button class="gtog'+(row.collapsed?'':' open')+'" onclick="toggleGrp(\'FASE:'+row.proj.replace(/'/g,"\\'")+'|'+row.name.replace(/'/g,"\\'")+'\')">▶</button>'+
+        '<span style="font-size:10px;color:'+row.color+';margin-right:2px;">⬡</span>'+
+        '<span class="task-lbl" style="font-weight:600;font-size:11px;color:#6B7280;">'+row.name+'</span>'+
+        '</div><div class="gcell-pct" style="color:#9CA3AF;font-size:11px;">'+row.pct+'%</div></div>';
+    } else if(row.type==='task'){
+      var t=row.t,ep=t.status==='completado'?100:(t.pct||0);
+      var pc=ep===100?'#059669':ep>=50?'#1B4FD8':ep>0?'#D97706':'#DC2626';
+      leftHTML+='<div class="grow" id="lr_'+t.id+'" style="padding-left:'+row.indent+'px;" ondblclick="openPanel(\''+t.id+'\')" onclick="selRow(\''+t.id+'\')">'+
+        '<div class="gcell-n">'+semDot(t.sem||'g')+
+        '<span class="task-lbl" title="'+t.name+'">'+(t.fav?'⭐ ':'')+t.name+'</span>'+
+        '</div><div class="gcell-pct" style="color:'+pc+'">'+ep+'%</div></div>';
+    }
+  });
   document.getElementById('gl-body').innerHTML=leftHTML;
-  var cb=document.getElementById('cal-b');cb.style.width=(ganttDays*28)+'px';cb.innerHTML='';
 
-  bodyRows.forEach(function(row){
+  // Build RIGHT calendar from SAME rows array
+  var cb=document.getElementById('cal-b');
+  cb.style.width=(ganttDays*28)+'px';
+  cb.innerHTML='';
+
+  rows.forEach(function(row){
     var rd=document.createElement('div');
-    if(row.type==='owner') 
-    rd.className='cal-row'+(row.type==='proj'||row.type==='fase'||row.type==='overall'||row.type==='owner'?' grp-r':'');
-    if(row.type==='proj')rd.style.background='rgba('+hexToRgb(row.color||'#3b82f6')+',0.05)';
-    if(row.type==='owner'){rd.style.background='#F3F4F6';rd.style.borderBottom='1.5px solid #D1D5DB';}
-    if(row.type==='proj')rd.style.background='#F8FAFF';
-    dates.forEach(function(d){var isWE=d.getDay()===0||d.getDay()===6,isT=ymd(d)===ymd(today);var dc=document.createElement('div');dc.className='dcell'+(isWE?' we':'')+(isT?' tod':'');if(row.type==='owner')rd.appendChild(dc);});
+    var isGrp=(row.type!=='task');
+    rd.className='cal-row'+(isGrp?' grp-r':'');
+    if(row.type==='overall') rd.style.background='#F0F4FF';
+    if(row.type==='owner') rd.style.cssText='background:#F3F4F6;border-bottom:1.5px solid #D1D5DB;height:36px;min-height:36px;max-height:36px;';
+    if(row.type==='proj') rd.style.background='rgba('+hexToRgb(row.color||'#1B4FD8')+',0.04)';
+
+    dates.forEach(function(d){
+      var isWE=d.getDay()===0||d.getDay()===6,isT=ymd(d)===ymd(today);
+      var dc=document.createElement('div');
+      dc.className='dcell'+(isWE?' we':'')+(isT?' tod':'');
+      rd.appendChild(dc);
+    });
+
     if(row.type==='task'&&row.t.start&&row.t.end){
       var t=row.t,ts=pd(t.start),te=pd(t.end),s0=pd(ymd(ganttStart));
-      var left=dBetween(s0,ts),width=Math.max(1,dBetween(ts,te)+1);
-      var lPx=left*28,wPx=width*28-2;
+      var leftD=dBetween(s0,ts),width=Math.max(1,dBetween(ts,te)+1);
+      var lPx=leftD*28,wPx=width*28-2;
       if(lPx<ganttDays*28&&lPx+wPx>0){
-        var bc=BAR_COLORS[t.resp]||'#1B4FD8',ep=t.status==='completado'?100:(t.pct||0);
-        var bar=document.createElement('div');bar.className='gbar';
-        bar.style.left=Math.max(0,lPx)+'px';bar.style.width=wPx+'px';bar.title=t.name+' — '+ep+'%';
+        var bc=BAR_COLORS[t.resp]||'#1B4FD8';
+        var ep=t.status==='completado'?100:(t.pct||0);
         var isAtrasado=(ep===0&&t.sem==='r');
+        var bar=document.createElement('div');
+        bar.className='gbar';
+        bar.style.left=Math.max(0,lPx)+'px';
+        bar.style.width=wPx+'px';
+        bar.style.height='20px';
         bar.style.border=isAtrasado?'2px solid '+bc:'1.5px solid rgba(0,0,0,.15)';
+        bar.title=t.name+' — '+ep+'%';
         bar.innerHTML=
-          '<div style="position:absolute;left:0;top:0;bottom:0;width:8px;cursor:ew-resize;z-index:3;border-radius:4px 0 0 4px;"></div>'+
-          '<div style="position:absolute;inset:0;background:'+(isAtrasado?bc+'22':bc)+';opacity:'+(isAtrasado?.15:1)+';border-radius:3px;"></div>'+
-          '<div style="position:absolute;top:0;left:0;height:100%;width:'+ep+'%;background:'+bc+';border-radius:3px;opacity:'+(isAtrasado?1:.85)+';"></div>'+
-          '<span style="position:relative;z-index:2;font-size:10px;font-weight:700;color:'+(isAtrasado?bc:'#fff')+';padding:0 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;text-shadow:'+(isAtrasado?'none':'0 1px 2px rgba(0,0,0,.3)')+';display:block;">'+t.name+'</span>'+
-          '<div style="position:absolute;right:0;top:0;bottom:0;width:8px;cursor:ew-resize;z-index:3;border-radius:0 4px 4px 0;"></div>';
-        bar.ondblclick=function(){openPanel(t.id);};bar.onclick=function(e){e.stopPropagation();selRow(t.id);};
+          '<div style="position:absolute;inset:0;background:'+(isAtrasado?bc+'18':bc)+';border-radius:3px;"></div>'+
+          '<div style="position:absolute;top:0;left:0;height:100%;width:'+ep+'%;background:'+bc+';opacity:.95;border-radius:3px;"></div>'+
+          '<span style="position:relative;z-index:2;font-size:10px;font-weight:700;color:'+(isAtrasado?bc:'#fff')+';padding:0 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;display:block;line-height:20px;text-shadow:'+(isAtrasado?'none':'0 1px 2px rgba(0,0,0,.3)')+';letter-spacing:.01em;">'+t.name+'</span>'+
+          '<div style="position:absolute;left:0;top:0;bottom:0;width:6px;cursor:ew-resize;z-index:3;border-radius:4px 0 0 4px;"></div>'+
+          '<div style="position:absolute;right:0;top:0;bottom:0;width:6px;cursor:ew-resize;z-index:3;border-radius:0 4px 4px 0;"></div>';
+        bar.ondblclick=function(){openPanel(t.id);};
+        bar.onclick=function(e){e.stopPropagation();selRow(t.id);};
         rd.appendChild(bar);
       }
     }
@@ -924,6 +934,40 @@ function renderGantt(){
   setTimeout(function(){initRowDrag();initBarDrag();},150);
 }
 
+function addProjRows(rows,projs,filtTasks,baseIndent){
+  projs.forEach(function(proj){
+    var projName=proj.name;
+    var projTasks=tasks.filter(function(t){return(t.proyecto||t.proj)===projName;});
+    if(!projTasks.length)return;
+    var projFiltTasks=filtTasks.filter(function(t){return(t.proyecto||t.proj)===projName;});
+    var projPct=Math.round(projTasks.reduce(function(a,t){return a+(t.status==='completado'?100:(t.pct||0));},0)/projTasks.length);
+    var pc=proj.color||projColor(projName);
+    var isCP=collapsed.has('PROJ:'+projName);
+    rows.push({type:'proj',name:projName,color:pc,pct:projPct,collapsed:isCP,indent:baseIndent});
+    if(isCP)return;
+
+    var faseNames=[];
+    fases.filter(function(f){return f.proyecto===projName;}).forEach(function(f){if(faseNames.indexOf(f.nombre)<0)faseNames.push(f.nombre);});
+    projTasks.forEach(function(t){if(t.fase&&faseNames.indexOf(t.fase)<0)faseNames.push(t.fase);});
+
+    if(faseNames.length>0){
+      faseNames.forEach(function(faseName){
+        var faseTasks=projTasks.filter(function(t){return t.fase===faseName;});
+        var faseFilt=projFiltTasks.filter(function(t){return t.fase===faseName;});
+        if(!faseTasks.length)return;
+        var fasePct=Math.round(faseTasks.reduce(function(a,t){return a+(t.status==='completado'?100:(t.pct||0));},0)/faseTasks.length);
+        var isCF=collapsed.has('FASE:'+projName+'|'+faseName);
+        rows.push({type:'fase',name:faseName,proj:projName,color:pc,pct:fasePct,collapsed:isCF,indent:baseIndent+18});
+        if(isCF)return;
+        faseFilt.forEach(function(t){rows.push({type:'task',t:t,indent:baseIndent+36});});
+      });
+      // Tasks without fase
+      projFiltTasks.filter(function(t){return !t.fase;}).forEach(function(t){rows.push({type:'task',t:t,indent:baseIndent+22});});
+    } else {
+      projFiltTasks.forEach(function(t){rows.push({type:'task',t:t,indent:baseIndent+22});});
+    }
+  });
+}
 function buildProjRows(projs,filtTasks,dates,today,indentBase){
   var leftHTML='',rows=[];
   projs.forEach(function(proj){
@@ -1306,7 +1350,9 @@ function dpTab(tab){
 // ════════════════════════════════════════
 // FASES
 // ════════════════════════════════════════
+var editFaseId=null;
 function openNewFase(projName){
+  editFaseId=null;
   var sel=document.getElementById('fm-proj');
   var gs=projects.map(function(p){return p.name;});
   tasks.forEach(function(t){var pn=t.proyecto||t.proj;if(gs.indexOf(pn)<0)gs.push(pn);});
@@ -1315,13 +1361,41 @@ function openNewFase(projName){
   document.getElementById('fm-desc').value='';
   document.getElementById('fase-modal').classList.remove('hidden');
 }
-function closeFaseModal(){document.getElementById('fase-modal').classList.add('hidden');}
+function openEditFase(faseId){
+  var f=fases.find(function(x){return x.id===faseId;});if(!f)return;
+  editFaseId=faseId;
+  var sel=document.getElementById('fm-proj');
+  var gs=projects.map(function(p){return p.name;});
+  sel.innerHTML=gs.map(function(g){return'<option value="'+g+'"'+(g===f.proyecto?' selected':'')+'>'+g+'</option>';}).join('');
+  document.getElementById('fm-nombre').value=f.nombre||'';
+  document.getElementById('fm-desc').value=f.desc||'';
+  document.getElementById('fase-modal').classList.remove('hidden');
+}
+function closeFaseModal(){document.getElementById('fase-modal').classList.add('hidden');editFaseId=null;}
 function saveFaseModal(){
   var nombre=document.getElementById('fm-nombre').value.trim();
   var proj=document.getElementById('fm-proj').value;
   if(!nombre){toast('⚠️ Escribe el nombre de la fase.');return;}
-  var f={id:uid(),nombre:nombre,proyecto:proj,desc:document.getElementById('fm-desc').value.trim(),createdBy:curUser.name,updTs:nowStr()};
-  db.collection('fases').doc(f.id).set(f).then(function(){closeFaseModal();toast('✅ Fase creada: '+nombre);}).catch(function(e){toast('❌ '+e.message);});
+  if(editFaseId){
+    var oldFase=fases.find(function(x){return x.id===editFaseId;});
+    db.collection('fases').doc(editFaseId).update({nombre:nombre,proyecto:proj,desc:document.getElementById('fm-desc').value.trim(),updTs:nowStr()})
+      .then(function(){
+        if(oldFase&&oldFase.nombre!==nombre){
+          // Rename fase in all tasks
+          var affected=tasks.filter(function(t){return t.fase===oldFase.nombre&&(t.proyecto||t.proj)===oldFase.proyecto;});
+          if(affected.length>0){
+            var batch=db.batch();
+            affected.forEach(function(t){batch.update(db.collection('tasks').doc(t.id),{fase:nombre});});
+            batch.commit()
+              .then(function(){closeFaseModal();toast('✅ Fase renombrada — '+affected.length+' tarea(s) actualizadas');})
+              .catch(function(e){closeFaseModal();toast('⚠️ Error: '+e.message);});
+          } else {closeFaseModal();toast('✅ Fase actualizada');}
+        } else {closeFaseModal();toast('✅ Fase actualizada');}
+      }).catch(function(e){toast('❌ '+e.message);});
+  } else {
+    var f={id:uid(),nombre:nombre,proyecto:proj,desc:document.getElementById('fm-desc').value.trim(),createdBy:curUser.name,updTs:nowStr()};
+    db.collection('fases').doc(f.id).set(f).then(function(){closeFaseModal();toast('✅ Fase creada: '+nombre);}).catch(function(e){toast('❌ '+e.message);});
+  }
 }
 function dpFillFases(projName){
   var sel=document.getElementById('dp-fase-sel');if(!sel)return;
@@ -1408,14 +1482,47 @@ function saveProjModal(){
     propietario:document.getElementById('pm-propietario').value,
     createdBy:curUser?curUser.name:'',updTs:nowStr()};
   db.collection('projects').doc(p.id).set(p)
-    .then(function(){closeProjModal();toast(editProjId?'✅ Proyecto actualizado':'✅ Proyecto creado');})
+    .then(function(){
+      if(editProjId){
+        var oldProj=projects.find(function(x){return x.id===editProjId;});
+        if(oldProj&&oldProj.name!==p.name){
+          // Name changed — update all tasks referencing old name
+          var affected=tasks.filter(function(t){return t.proj===oldProj.name||t.proyecto===oldProj.name;});
+          var faseAffected=fases.filter(function(f){return f.proyecto===oldProj.name;});
+          var total=affected.length+faseAffected.length;
+          if(total>0){
+            var batch=db.batch();
+            affected.forEach(function(t){batch.update(db.collection('tasks').doc(t.id),{proj:p.name,proyecto:p.name});});
+            faseAffected.forEach(function(f){batch.update(db.collection('fases').doc(f.id),{proyecto:p.name});});
+            batch.commit()
+              .then(function(){closeProjModal();toast('✅ Proyecto renombrado — '+affected.length+' tareas y '+faseAffected.length+' fases actualizadas');})
+              .catch(function(e){closeProjModal();toast('⚠️ Error actualizando referencias: '+e.message);});
+          } else {
+            closeProjModal();toast('✅ Proyecto actualizado');
+          }
+        } else {
+          closeProjModal();toast('✅ Proyecto actualizado');
+        }
+      } else {
+        closeProjModal();toast('✅ Proyecto creado');
+      }
+    })
     .catch(function(e){toast('⚠️ '+e.message);});
 }
 function deleteProject(pid){
   var p=projects.find(function(x){return x.id===pid;});if(!p)return;
   var tc=tasks.filter(function(t){return t.proj===p.name;}).length;
-  confirmAction('¿Eliminar proyecto?','"'+p.name+'"'+(tc?' — tiene '+tc+' tarea(s) asociada(s).':''),function(){
-    db.collection('projects').doc(pid).delete().then(function(){toast('Proyecto eliminado');});
+  confirmAction('¿Eliminar proyecto?','"'+p.name+'"'+(tc?' — tiene '+tc+' tarea(s). Las tareas NO se eliminarán pero quedarán sin proyecto.':''),function(){
+    db.collection('projects').doc(pid).delete().then(function(){
+      // Also delete fases of this project
+      var projFases=fases.filter(function(f){return f.proyecto===p.name;});
+      if(projFases.length>0){
+        var batch=db.batch();
+        projFases.forEach(function(f){batch.delete(db.collection('fases').doc(f.id));});
+        batch.commit();
+      }
+      toast('Proyecto eliminado');
+    });
   });
 }
 function renderProjects(){
