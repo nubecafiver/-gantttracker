@@ -1534,50 +1534,125 @@ function renderProjects(){
     if(isAdmin)return true;
     return p.propietario===curUser.name||p.createdBy===curUser.name||p.owner===curUser.name;
   });
+
   var sbClass={activo:'sb-activo','en pausa':'sb-pausa',completado:'sb-completado',cancelado:'sb-cancelado'};
   var sbLbl={activo:'Activo','en pausa':'En pausa',completado:'Completado',cancelado:'Cancelado'};
-  var html='<div class="page-hd"><div><h2>Proyectos</h2><p>Gestiona y da seguimiento a todos los proyectos</p></div><button class="btn btn-primary" onclick="openNewProject()">+ Nuevo proyecto</button></div>';
+
+  var html='<div class="page-hd"><div><h2>Proyectos</h2><p>Organizado por responsable</p></div>'+
+    '<div style="display:flex;gap:8px;">'+
+    '<button class="btn btn-primary" onclick="openNewProject()">+ Nuevo proyecto</button>'+
+    '</div></div>';
+
   if(!visibleProjects.length){
-    html+='<div style="text-align:center;padding:4rem;color:var(--c-text3);"><div style="font-size:48px;margin-bottom:1rem;">📁</div><div style="font-size:16px;font-weight:600;margin-bottom:8px;">Sin proyectos aún</div><div style="font-size:13px;margin-bottom:1.5rem;">Crea tu primer proyecto para comenzar</div><button class="btn btn-primary" onclick="openNewProject()">+ Crear proyecto</button></div>';
-  }else{
-    html+='<div class="proj-grid">';
-    visibleProjects.forEach(function(p){
-      var tc=tasks.filter(function(t){return t.proj===p.name;}).length;
-      var dc=tasks.filter(function(t){return t.proj===p.name&&t.status==='completado';}).length;
-      var pct=tc?Math.round(dc/tc*100):0;
-      html+='<div class="proj-card" onclick="void(0)">'+
-        '<div class="proj-card-top" style="background:'+p.color+';"></div>'+
-        '<div class="proj-card-body">'+
-        '<div class="proj-card-hd">'+
-        '<div style="display:flex;align-items:center;gap:10px;">'+
-        '<div class="proj-icon" style="background:'+p.color+'22;">📁</div>'+
-        '<div><div class="proj-card-title">'+p.name+'</div>'+(p.owner?'<div class="proj-card-owner">👤 '+p.owner+'</div>':'')+'</div>'+
-        '</div>'+
-        '<span class="status-badge '+(sbClass[p.status]||'sb-activo')+'">'+(sbLbl[p.status]||p.status)+'</span>'+
-        '</div>'+
-        (p.desc?'<div style="font-size:12px;color:var(--c-text2);margin-bottom:10px;line-height:1.6;">'+p.desc+'</div>':'')+
-        (p.start||p.end?'<div style="font-size:11px;color:var(--c-text3);margin-bottom:10px;">📅 '+(p.start||'—')+' → '+(p.end||'—')+'</div>':'')+
-        '<div class="proj-prog">'+
-        '<div class="proj-prog-meta"><span>'+tc+' tarea'+(tc!==1?'s':'')+' · '+dc+' completada'+(dc!==1?'s':'')+'</span><span style="font-weight:700;color:'+p.color+'">'+pct+'%</span></div>'+
-        '<div class="proj-prog-bar"><div class="proj-prog-fill" style="width:'+pct+'%;background:'+p.color+'"></div></div>'+
-        '</div>'+
-        '<div class="proj-card-foot">'+
-        '<button class="btn btn-sm" onclick="event.stopPropagation();openAddTaskFor(\''+p.name+'\')" style="flex:1;justify-content:center;">+ Tarea</button>'+
-            '<button class="btn btn-sm" onclick="event.stopPropagation();openNewFase(\''+p.name+'\')" style="justify-content:center;background:rgba(16,185,129,.1);color:var(--c-ti);border-color:rgba(16,185,129,.25);">+ Fase</button>'+
-        '<button class="btn btn-sm" onclick="event.stopPropagation();openEditProject(\''+p.id+'\')" style="flex:1;justify-content:center;">✏️ Editar</button>'+
-        '<button class="btn btn-sm" onclick="event.stopPropagation();switchView(\'gantt\')" style="flex:1;justify-content:center;">▦ Gantt</button>'+
-        '<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteProject(\''+p.id+'\')">🗑</button>'+
-        '</div>'+
-        '</div></div>';
-    });
-    html+='</div>';
+    html+='<div style="text-align:center;padding:4rem;color:#9CA3AF;">'+
+      '<div style="font-size:48px;margin-bottom:1rem;">📁</div>'+
+      '<div style="font-size:16px;font-weight:600;margin-bottom:8px;color:#374151;">Sin proyectos aún</div>'+
+      '<div style="font-size:13px;margin-bottom:1.5rem;">Crea tu primer proyecto para comenzar</div>'+
+      '<button class="btn btn-primary" onclick="openNewProject()">+ Crear proyecto</button></div>';
+    wrap.innerHTML=html;return;
   }
+
+  // Group projects by owner
+  var ownerMap={};
+  visibleProjects.forEach(function(p){
+    var owner=p.propietario||p.owner||p.createdBy||'Sin asignar';
+    if(!ownerMap[owner])ownerMap[owner]=[];
+    ownerMap[owner].push(p);
+  });
+
+  // Order: current user first, then alphabetical
+  var ownerNames=Object.keys(ownerMap).sort(function(a,b){
+    if(a===curUser.name)return -1;
+    if(b===curUser.name)return 1;
+    return a.localeCompare(b);
+  });
+
+  ownerNames.forEach(function(ownerName){
+    var ownerProjs=ownerMap[ownerName];
+    var ownerEmail=Object.keys(USER_DIR).find(function(e){return USER_DIR[e].name===ownerName;});
+    var ownerColor=ownerEmail?USER_DIR[ownerEmail].color:'#1B4FD8';
+    var ini=ownerName.split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);
+
+    // Calc owner stats
+    var ownerTasks=tasks.filter(function(t){return ownerProjs.some(function(p){return p.name===(t.proyecto||t.proj);});});
+    var ownerPct=ownerTasks.length?Math.round(ownerTasks.reduce(function(a,t){return a+(t.status==='completado'?100:(t.pct||0));},0)/ownerTasks.length):0;
+    var ownerCompleted=ownerTasks.filter(function(t){return t.status==='completado';}).length;
+    var ownerRisk=ownerTasks.filter(function(t){return t.sem==='r';}).length;
+
+    html+='<div style="margin-bottom:28px;">'+
+      '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:10px;border-bottom:1.5px solid #E5E7EB;">'+
+        '<div style="width:36px;height:36px;border-radius:50%;background:'+ownerColor+'22;color:'+ownerColor+';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;">'+ini+'</div>'+
+        '<div>'+
+          '<div style="font-size:14px;font-weight:700;color:#111827;">'+ownerName+'</div>'+
+          '<div style="font-size:11px;color:#6B7280;">'+ownerProjs.length+' proyecto'+(ownerProjs.length!==1?'s':'')+' · '+ownerTasks.length+' tarea'+(ownerTasks.length!==1?'s':'')+' · '+ownerCompleted+' completada'+(ownerCompleted!==1?'s':'')+'</div>'+
+        '</div>'+
+        '<div style="margin-left:auto;display:flex;align-items:center;gap:16px;">'+
+          (ownerRisk>0?'<div style="display:flex;align-items:center;gap:4px;font-size:11px;color:#DC2626;"><div style="width:8px;height:8px;border-radius:50%;background:#DC2626;"></div>'+ownerRisk+' en riesgo</div>':'')+
+          '<div style="font-size:18px;font-weight:700;color:'+ownerColor+';">'+ownerPct+'%</div>'+
+        '</div>'+
+      '</div>'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;">';
+
+    ownerProjs.forEach(function(p){
+      var tc=tasks.filter(function(t){return t.proj===p.name||t.proyecto===p.name;}).length;
+      var dc=tasks.filter(function(t){return(t.proj===p.name||t.proyecto===p.name)&&t.status==='completado';}).length;
+      var rc=tasks.filter(function(t){return(t.proj===p.name||t.proyecto===p.name)&&t.sem==='r';}).length;
+      var yc=tasks.filter(function(t){return(t.proj===p.name||t.proyecto===p.name)&&t.sem==='y';}).length;
+      var gc=tc-rc-yc;
+      var pct=tc?Math.round(dc/tc*100):0;
+
+      html+='<div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;overflow:hidden;transition:all .15s;cursor:pointer;" onmouseover="this.style.borderColor=\''+p.color+'\';this.style.boxShadow=\'0 4px 16px rgba(0,0,0,.08)\'" onmouseout="this.style.borderColor=\'#E5E7EB\';this.style.boxShadow=\'none\'">'+
+        '<div style="height:4px;background:'+p.color+';"></div>'+
+        '<div style="padding:12px 14px;">'+
+          '<div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px;">'+
+            '<div style="font-size:13px;font-weight:700;color:#111827;flex:1;margin-right:8px;">'+p.name+'</div>'+
+            '<span style="font-size:9px;font-weight:600;padding:2px 7px;border-radius:20px;white-space:nowrap;'+
+              (p.status==='activo'?'background:#D1FAE5;color:#065F46;':
+               p.status==='en pausa'?'background:#FEF3C7;color:#92400E;':
+               p.status==='completado'?'background:#DBEAFE;color:#1E40AF;':
+               'background:#FEE2E2;color:#991B1B;')+'">'+(sbLbl[p.status]||p.status)+'</span>'+
+          '</div>'+
+          (p.desc?'<div style="font-size:11px;color:#6B7280;margin-bottom:8px;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">'+p.desc+'</div>':'')+
+          (p.start||p.end?'<div style="font-size:10px;color:#9CA3AF;margin-bottom:8px;">📅 '+(p.start||'—')+' → '+(p.end||'—')+'</div>':'')+
+          '<div style="margin-bottom:10px;">'+
+            '<div style="display:flex;justify-content:space-between;font-size:10px;color:#6B7280;margin-bottom:4px;">'+
+              '<span>'+tc+' tarea'+(tc!==1?'s':'')+' · '+dc+' completada'+(dc!==1?'s':'')+'</span>'+
+              '<span style="font-weight:700;color:'+p.color+';">'+pct+'%</span>'+
+            '</div>'+
+            '<div style="height:5px;background:#F3F4F6;border-radius:3px;overflow:hidden;">'+
+              '<div style="height:100%;width:'+pct+'%;background:'+p.color+';border-radius:3px;transition:width .4s;"></div>'+
+            '</div>'+
+          '</div>'+
+          // Semaforo dots
+          (tc>0?'<div style="display:flex;align-items:center;gap:4px;margin-bottom:10px;">'+
+            (gc>0?'<div style="display:flex;align-items:center;gap:2px;font-size:10px;color:#059669;"><div style="width:7px;height:7px;border-radius:50%;background:#059669;"></div>'+gc+'</div>':'')+
+            (yc>0?'<div style="display:flex;align-items:center;gap:2px;font-size:10px;color:#D97706;margin-left:4px;"><div style="width:7px;height:7px;border-radius:50%;background:#D97706;"></div>'+yc+'</div>':'')+
+            (rc>0?'<div style="display:flex;align-items:center;gap:2px;font-size:10px;color:#DC2626;margin-left:4px;"><div style="width:7px;height:7px;border-radius:50%;background:#DC2626;"></div>'+rc+'</div>':'')+
+          '</div>':'')+
+          '<div style="display:flex;gap:5px;">'+
+            '<button class="btn btn-sm" onclick="event.stopPropagation();openAddTaskFor(\''+p.name.replace(/'/g,"\\'")+'\')">+ Tarea</button>'+
+            '<button class="btn btn-sm" onclick="event.stopPropagation();openNewFase(\''+p.name.replace(/'/g,"\\'")+'\')">+ Fase</button>'+
+            '<button class="btn btn-sm" onclick="event.stopPropagation();openEditProject(\''+p.id+'\')">✏️</button>'+
+            '<button class="btn btn-sm" onclick="event.stopPropagation();switchView(\'gantt\')" style="flex:1;justify-content:center;">▦ Gantt</button>'+
+            '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteProject(\''+p.id+'\')">🗑</button>'+
+          '</div>'+
+        '</div>'+
+      '</div>';
+    });
+
+    // Add new project button at end of owner section
+    html+='<div style="border:1.5px dashed #D1D5DB;border-radius:10px;display:flex;align-items:center;justify-content:center;min-height:120px;cursor:pointer;transition:all .15s;" '+
+      'onclick="openNewProject()" '+
+      'onmouseover="this.style.borderColor=\'#1B4FD8\';this.style.background=\'#F8FAFF\'" '+
+      'onmouseout="this.style.borderColor=\'#D1D5DB\';this.style.background=\'transparent\'">'+
+      '<div style="text-align:center;"><div style="font-size:24px;color:#9CA3AF;margin-bottom:4px;">+</div><div style="font-size:11px;color:#9CA3AF;">Nuevo proyecto</div></div>'+
+    '</div>';
+
+    html+='</div></div>';
+  });
+
   wrap.innerHTML=html;
 }
-
-// ════════════════════════════════════════
-// ADD TASK
-// ════════════════════════════════════════
 function openAddTask(){
   fillProjSelect('');
   var td=new Date().toISOString().slice(0,10);
@@ -1683,15 +1758,276 @@ function exportDay(dk){
 // ════════════════════════════════════════
 function renderHist(){
   var wrap=document.getElementById('hist-inner');if(!wrap)return;
-  wrap.innerHTML='<div class="page-hd"><div><h2>Historial</h2><p>Registro de todos los cambios realizados</p></div></div>'+
-    (history.length?'<div class="hist-wrap"><div style="overflow-x:auto;"><table><thead><tr><th>Fecha/Hora</th><th>Usuario</th><th>Proyecto</th><th>Tarea</th><th>Campo</th><th>Valor</th></tr></thead><tbody>'+
-    actLog.slice(0,200).map(function(h){return'<tr><td style="font-family:monospace;white-space:nowrap;font-size:11px;">'+h.ts+'</td><td>'+h.user+'</td><td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;">'+h.proj+'</td><td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+h.task+'</td><td style="font-size:11px;">'+h.campo+'</td><td style="font-weight:600;">'+h.val+'</td></tr>';}).join('')+'</tbody></table></div></div>':
-    '<div class="hist-wrap"><div class="empty-msg">Sin historial aún.</div></div>');
+
+  // ── KPI calculations ──
+  var now=new Date(),weekAgo=new Date(now-7*86400000);
+  var recentH=actLog.filter(function(h){
+    try{var parts=h.ts.split(', ')[0].split('/');var d=new Date(2000+parseInt(parts[2]),parseInt(parts[1])-1,parseInt(parts[0]));return d>=weekAgo;}catch(e){return false;}
+  });
+  var completedTasks=tasks.filter(function(t){return t.status==='completado';}).length;
+  var riskTasks=tasks.filter(function(t){return t.sem==='r'&&t.status!=='completado';}).length;
+  var riskProjs=new Set(tasks.filter(function(t){return t.sem==='r';}).map(function(t){return t.proj;})).size;
+
+  // Activity by user (from actLog)
+  var userAct={};
+  actLog.forEach(function(h){if(!userAct[h.user])userAct[h.user]=0;userAct[h.user]++;});
+  var topUsers=Object.keys(userAct).sort(function(a,b){return userAct[b]-userAct[a];}).slice(0,5);
+  var maxAct=topUsers.length?userAct[topUsers[0]]:1;
+
+  // Activity by day last 7 days
+  var dayAct={};
+  for(var d=0;d<7;d++){var dd=new Date(now-d*86400000);var k=dd.toLocaleDateString('es-MX',{day:'2-digit',month:'2-digit'});dayAct[k]=0;}
+  actLog.forEach(function(h){var k=(h.ts||'').split(', ')[0];if(dayAct.hasOwnProperty(k))dayAct[k]++;});
+  var dayKeys=Object.keys(dayAct).reverse();
+  var maxDay=Math.max.apply(null,Object.values(dayAct))||1;
+
+  var html='<div class="page-hd"><div><h2>Historial</h2><p>Registro de cambios y reporte ejecutivo</p></div></div>';
+
+  // KPI cards
+  html+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;">'+
+    '<div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;padding:14px 16px;border-top:3px solid #1B4FD8;">'+
+      '<div style="font-size:22px;font-weight:700;color:#1B4FD8;">'+actLog.length+'</div>'+
+      '<div style="font-size:11px;color:#6B7280;margin-top:2px;">Total cambios registrados</div>'+
+    '</div>'+
+    '<div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;padding:14px 16px;border-top:3px solid #059669;">'+
+      '<div style="font-size:22px;font-weight:700;color:#059669;">'+completedTasks+'</div>'+
+      '<div style="font-size:11px;color:#6B7280;margin-top:2px;">Tareas completadas</div>'+
+    '</div>'+
+    '<div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;padding:14px 16px;border-top:3px solid #DC2626;">'+
+      '<div style="font-size:22px;font-weight:700;color:#DC2626;">'+riskTasks+'</div>'+
+      '<div style="font-size:11px;color:#6B7280;margin-top:2px;">Tareas en riesgo</div>'+
+    '</div>'+
+    '<div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;padding:14px 16px;border-top:3px solid #D97706;">'+
+      '<div style="font-size:22px;font-weight:700;color:#D97706;">'+riskProjs+'</div>'+
+      '<div style="font-size:11px;color:#6B7280;margin-top:2px;">Proyectos con riesgo</div>'+
+    '</div>'+
+  '</div>';
+
+  // Charts row
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">'+
+    // Activity by day chart
+    '<div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;padding:14px 16px;">'+
+      '<div style="font-size:11px;font-weight:600;color:#374151;margin-bottom:10px;">Actividad últimos 7 días</div>'+
+      '<div style="display:flex;align-items:flex-end;gap:4px;height:60px;">'+
+      dayKeys.map(function(k){
+        var val=dayAct[k]||0;
+        var h=Math.max(8,Math.round(val/maxDay*56));
+        return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;">'+
+          '<div style="width:100%;height:'+h+'px;background:'+(val>0?'#1B4FD8':'#E5E7EB')+';border-radius:3px 3px 0 0;"></div>'+
+          '<div style="font-size:9px;color:#9CA3AF;">'+k+'</div>'+
+        '</div>';
+      }).join('')+
+      '</div>'+
+    '</div>'+
+    // Activity by user
+    '<div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;padding:14px 16px;">'+
+      '<div style="font-size:11px;font-weight:600;color:#374151;margin-bottom:10px;">Actividad por usuario</div>'+
+      '<div style="display:flex;flex-direction:column;gap:7px;">'+
+      topUsers.map(function(u){
+        var val=userAct[u];
+        var pct=Math.round(val/maxAct*100);
+        var email=Object.keys(USER_DIR).find(function(e){return USER_DIR[e].name===u;});
+        var color=email?USER_DIR[email].color:'#1B4FD8';
+        return '<div style="display:flex;align-items:center;gap:8px;">'+
+          '<div style="font-size:11px;color:#374151;width:90px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+u.split(' ')[0]+'</div>'+
+          '<div style="flex:1;height:5px;background:#F3F4F6;border-radius:3px;overflow:hidden;">'+
+            '<div style="height:100%;width:'+pct+'%;background:'+color+';border-radius:3px;"></div>'+
+          '</div>'+
+          '<div style="font-size:10px;font-weight:600;color:'+color+';width:24px;text-align:right;">'+val+'</div>'+
+        '</div>';
+      }).join('')+
+      (topUsers.length===0?'<div style="font-size:12px;color:#9CA3AF;">Sin actividad registrada.</div>':'')+
+      '</div>'+
+    '</div>'+
+  '</div>';
+
+  // Filters + export button
+  html+='<div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;overflow:hidden;">'+
+    '<div style="padding:10px 14px;border-bottom:1px solid #E5E7EB;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'+
+      '<span style="font-size:11px;color:#6B7280;">Filtrar:</span>'+
+      '<select id="hist-filter-user" onchange="renderHistTable()" style="font-size:11px;padding:4px 8px;border:1px solid #E5E7EB;border-radius:6px;background:#fff;color:#374151;">'+
+        '<option value="">Todos los usuarios</option>'+
+        Object.keys(USER_DIR).map(function(e){return'<option value="'+USER_DIR[e].name+'">'+USER_DIR[e].name+'</option>';}).join('')+
+      '</select>'+
+      '<select id="hist-filter-proj" onchange="renderHistTable()" style="font-size:11px;padding:4px 8px;border:1px solid #E5E7EB;border-radius:6px;background:#fff;color:#374151;">'+
+        '<option value="">Todos los proyectos</option>'+
+        projects.map(function(p){return'<option value="'+p.name+'">'+p.name+'</option>';}).join('')+
+      '</select>'+
+      '<select id="hist-filter-type" onchange="renderHistTable()" style="font-size:11px;padding:4px 8px;border:1px solid #E5E7EB;border-radius:6px;background:#fff;color:#374151;">'+
+        '<option value="">Todos los tipos</option>'+
+        '<option value="eliminó">Eliminaciones</option>'+
+        '<option value="pct">Avance %</option>'+
+        '<option value="status">Estado</option>'+
+        '<option value="name">Nombre</option>'+
+      '</select>'+
+      '<button onclick="exportReportePDF()" style="margin-left:auto;background:#1B4FD8;color:#fff;border:none;border-radius:6px;padding:6px 14px;font-size:11px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;">'+
+        '⬇ Exportar reporte PDF</button>'+
+    '</div>'+
+    '<div id="hist-table-wrap"></div>'+
+  '</div>';
+
+  wrap.innerHTML=html;
+  renderHistTable();
 }
 
-// ════════════════════════════════════════
-// EMAIL NOTIFY
-// ════════════════════════════════════════
+function renderHistTable(){
+  var wrap=document.getElementById('hist-table-wrap');if(!wrap)return;
+  var fUser=(document.getElementById('hist-filter-user')||{}).value||'';
+  var fProj=(document.getElementById('hist-filter-proj')||{}).value||'';
+  var fType=(document.getElementById('hist-filter-type')||{}).value||'';
+
+  var filtered=actLog.filter(function(h){
+    if(fUser&&h.user!==fUser)return false;
+    if(fProj&&h.proj!==fProj)return false;
+    if(fType&&h.campo!==fType)return false;
+    return true;
+  });
+
+  if(!filtered.length){wrap.innerHTML='<div style="padding:2rem;text-align:center;color:#9CA3AF;font-size:13px;">Sin registros para este filtro.</div>';return;}
+
+  var tagMap={
+    'eliminó':'background:#FEE2E2;color:#991B1B;',
+    'pct':'background:#DBEAFE;color:#1E40AF;',
+    'status':'background:#EDE9FE;color:#5B21B6;',
+    'name':'background:#FEF3C7;color:#92400E;',
+    'sem':'background:#D1FAE5;color:#065F46;',
+    'fase':'background:#DBEAFE;color:#1E40AF;',
+    'proyecto':'background:#E0E7FF;color:#3730A3;'
+  };
+
+  var html='<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">'+
+    '<thead><tr style="background:#F9FAFB;">'+
+    '<th style="padding:8px 12px;font-size:10px;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #E5E7EB;text-align:left;white-space:nowrap;">Fecha/Hora</th>'+
+    '<th style="padding:8px 12px;font-size:10px;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #E5E7EB;text-align:left;">Usuario</th>'+
+    '<th style="padding:8px 12px;font-size:10px;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #E5E7EB;text-align:left;">Proyecto</th>'+
+    '<th style="padding:8px 12px;font-size:10px;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #E5E7EB;text-align:left;">Tarea</th>'+
+    '<th style="padding:8px 12px;font-size:10px;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #E5E7EB;text-align:left;">Tipo</th>'+
+    '<th style="padding:8px 12px;font-size:10px;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #E5E7EB;text-align:left;">Valor</th>'+
+    '</tr></thead><tbody>'+
+    filtered.slice(0,200).map(function(h){
+      var tagStyle=tagMap[h.campo]||'background:#F3F4F6;color:#374151;';
+      var email=Object.keys(USER_DIR).find(function(e){return USER_DIR[e].name===h.user;});
+      var uc=email?USER_DIR[email].color:'#6B7280';
+      var ini=h.user?h.user.split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2):'?';
+      return'<tr style="border-bottom:1px solid #F3F4F6;" onmouseover="this.style.background=\'#F9FAFB\'" onmouseout="this.style.background=\'\'">'+
+        '<td style="padding:7px 12px;font-size:11px;color:#6B7280;white-space:nowrap;font-family:monospace;">'+h.ts+'</td>'+
+        '<td style="padding:7px 12px;"><div style="display:flex;align-items:center;gap:5px;">'+
+          '<div style="width:20px;height:20px;border-radius:50%;background:'+uc+'22;color:'+uc+';font-size:8px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;">'+ini+'</div>'+
+          '<span style="font-size:12px;color:#374151;">'+h.user+'</span></div></td>'+
+        '<td style="padding:7px 12px;font-size:11px;color:#6B7280;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+h.proj+'</td>'+
+        '<td style="padding:7px 12px;font-size:12px;color:#111827;font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+h.task+'</td>'+
+        '<td style="padding:7px 12px;"><span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:20px;'+tagStyle+'">'+h.campo+'</span></td>'+
+        '<td style="padding:7px 12px;font-size:12px;font-weight:600;color:#111827;">'+h.val+'</td>'+
+      '</tr>';
+    }).join('')+
+    '</tbody></table></div>'+
+    (filtered.length>200?'<div style="padding:8px 12px;font-size:11px;color:#9CA3AF;border-top:1px solid #E5E7EB;">Mostrando 200 de '+filtered.length+' registros.</div>':'');
+
+  wrap.innerHTML=html;
+}
+
+function exportReportePDF(){
+  var fecha=new Date().toLocaleDateString('es-MX',{year:'numeric',month:'long',day:'numeric'});
+  var completedTasks=tasks.filter(function(t){return t.status==='completado';}).length;
+  var totalTasks=tasks.length;
+  var riskTasks=tasks.filter(function(t){return t.sem==='r'&&t.status!=='completado';}).length;
+  var yellowTasks=tasks.filter(function(t){return t.sem==='y'&&t.status!=='completado';}).length;
+  var allPct=totalTasks?Math.round(tasks.reduce(function(a,t){return a+(t.status==='completado'?100:(t.pct||0));},0)/totalTasks):0;
+
+  // Build project summary
+  var projSummary='';
+  projects.forEach(function(p){
+    var pt=tasks.filter(function(t){return t.proj===p.name||t.proyecto===p.name;});
+    var pc=pt.filter(function(t){return t.status==='completado';}).length;
+    var pr=pt.filter(function(t){return t.sem==='r';}).length;
+    var pp=pt.length?Math.round(pt.reduce(function(a,t){return a+(t.status==='completado'?100:(t.pct||0));},0)/pt.length):0;
+    if(pt.length>0){
+      projSummary+='<tr>'+
+        '<td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;">'+p.name+'</td>'+
+        '<td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;">'+p.propietario||p.owner||'—'+'</td>'+
+        '<td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;text-align:center;">'+pt.length+'</td>'+
+        '<td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;text-align:center;">'+pc+'</td>'+
+        '<td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;text-align:center;color:'+(pr>0?'#DC2626':'#059669')+';">'+pr+'</td>'+
+        '<td style="padding:6px 10px;border-bottom:1px solid #eee;font-size:12px;font-weight:700;text-align:center;color:'+p.color+';">'+pp+'%</td>'+
+      '</tr>';
+    }
+  });
+
+  // Risk tasks list
+  var riskList='';
+  tasks.filter(function(t){return t.sem==='r'&&t.status!=='completado';}).forEach(function(t){
+    riskList+='<tr>'+
+      '<td style="padding:5px 10px;border-bottom:1px solid #eee;font-size:11px;">'+t.name+'</td>'+
+      '<td style="padding:5px 10px;border-bottom:1px solid #eee;font-size:11px;">'+t.proj+'</td>'+
+      '<td style="padding:5px 10px;border-bottom:1px solid #eee;font-size:11px;">'+t.assign+'</td>'+
+      '<td style="padding:5px 10px;border-bottom:1px solid #eee;font-size:11px;text-align:center;">'+(t.pct||0)+'%</td>'+
+      '<td style="padding:5px 10px;border-bottom:1px solid #eee;font-size:11px;">'+(t.end||'—')+'</td>'+
+    '</tr>';
+  });
+
+  // Recent changes (last 30)
+  var changeList='';
+  actLog.slice(0,30).forEach(function(h){
+    changeList+='<tr>'+
+      '<td style="padding:5px 10px;border-bottom:1px solid #eee;font-size:10px;color:#666;white-space:nowrap;">'+h.ts+'</td>'+
+      '<td style="padding:5px 10px;border-bottom:1px solid #eee;font-size:11px;">'+h.user+'</td>'+
+      '<td style="padding:5px 10px;border-bottom:1px solid #eee;font-size:11px;">'+h.proj+'</td>'+
+      '<td style="padding:5px 10px;border-bottom:1px solid #eee;font-size:11px;">'+h.task+'</td>'+
+      '<td style="padding:5px 10px;border-bottom:1px solid #eee;font-size:11px;">'+h.campo+'</td>'+
+      '<td style="padding:5px 10px;border-bottom:1px solid #eee;font-size:11px;font-weight:600;">'+h.val+'</td>'+
+    '</tr>';
+  });
+
+  var html='<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8">'+
+    '<title>Reporte de Proyectos — CAFIVER</title>'+
+    '<style>body{font-family:Arial,sans-serif;color:#111;margin:0;padding:0;}'+
+    '.page{padding:40px 50px;max-width:900px;margin:0 auto;}'+
+    'table{width:100%;border-collapse:collapse;}'+
+    'th{background:#1B4FD8;color:#fff;padding:8px 10px;font-size:11px;text-align:left;}'+
+    'h1{font-size:24px;color:#1B4FD8;margin:0 0 4px;}h2{font-size:16px;color:#1B4FD8;margin:24px 0 12px;border-bottom:2px solid #1B4FD8;padding-bottom:4px;}'+
+    '.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:16px 0;}'+
+    '.kpi{background:#F3F4F6;border-radius:8px;padding:12px;text-align:center;}'+
+    '.kpi-val{font-size:28px;font-weight:700;}.kpi-lbl{font-size:11px;color:#666;margin-top:4px;}'+
+    '.sem-g{color:#059669;font-weight:700;}.sem-y{color:#D97706;font-weight:700;}.sem-r{color:#DC2626;font-weight:700;}'+
+    '.footer{margin-top:40px;padding-top:16px;border-top:1px solid #E5E7EB;font-size:10px;color:#999;display:flex;justify-content:space-between;}'+
+    '@media print{.page{padding:20px;}}</style></head><body><div class="page">'+
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid #1B4FD8;">'+
+      '<div>'+
+        '<h1>Reporte Ejecutivo de Proyectos</h1>'+
+        '<div style="font-size:14px;color:#6B7280;margin-top:4px;">CAFIVER — GanttTracker Pro</div>'+
+        '<div style="font-size:12px;color:#9CA3AF;margin-top:2px;">Generado: '+fecha+'</div>'+
+      '</div>'+
+      '<div style="text-align:right;">'+
+        '<div style="font-size:12px;color:#6B7280;">Generado por</div>'+
+        '<div style="font-size:14px;font-weight:700;color:#111;">'+curUser.name+'</div>'+
+      '</div>'+
+    '</div>'+
+    '<h2>1. Resumen ejecutivo</h2>'+
+    '<div class="kpi-grid">'+
+      '<div class="kpi"><div class="kpi-val" style="color:#1B4FD8;">'+allPct+'%</div><div class="kpi-lbl">Avance global</div></div>'+
+      '<div class="kpi"><div class="kpi-val" style="color:#059669;">'+completedTasks+'</div><div class="kpi-lbl">Tareas completadas</div></div>'+
+      '<div class="kpi"><div class="kpi-val" style="color:#DC2626;">'+riskTasks+'</div><div class="kpi-lbl">En riesgo 🔴</div></div>'+
+      '<div class="kpi"><div class="kpi-val" style="color:#D97706;">'+yellowTasks+'</div><div class="kpi-lbl">En riesgo moderado 🟡</div></div>'+
+    '</div>'+
+    '<h2>2. Estado por proyecto</h2>'+
+    '<table><thead><tr><th>Proyecto</th><th>Responsable</th><th>Tareas</th><th>Completadas</th><th>En riesgo</th><th>% Avance</th></tr></thead><tbody>'+projSummary+'</tbody></table>'+
+    (riskList?'<h2>3. Tareas en riesgo 🔴</h2>'+
+    '<table><thead><tr><th>Tarea</th><th>Proyecto</th><th>Asignado a</th><th>% Avance</th><th>Fecha fin</th></tr></thead><tbody>'+riskList+'</tbody></table>':'')+
+    (changeList?'<h2>'+(riskList?'4':'3')+'. Últimos 30 cambios registrados</h2>'+
+    '<table><thead><tr><th>Fecha/Hora</th><th>Usuario</th><th>Proyecto</th><th>Tarea</th><th>Campo</th><th>Valor</th></tr></thead><tbody>'+changeList+'</tbody></table>':'')+
+    '<div class="footer">'+
+      '<span>GanttTracker Pro — APP CAFIVER</span>'+
+      '<span>'+fecha+'</span>'+
+    '</div>'+
+    '</div></body></html>';
+
+  var blob=new Blob([html],{type:'text/html;charset=utf-8'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='Reporte_CAFIVER_'+new Date().toISOString().slice(0,10)+'.html';
+  a.click();
+  toast('📄 Reporte exportado — ábrelo en Chrome e imprime como PDF');
+}
 function notifyAssign(task,prevAssign){
   var newA=(task.assign||'').trim();if(!newA||newA===prevAssign)return;
   newA.split(/[\/,&+]/).map(function(s){return s.trim();}).filter(Boolean).forEach(function(name){
