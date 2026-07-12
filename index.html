@@ -8,7 +8,7 @@
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+
 <style>
 :root{
   /* Arctic Theme */
@@ -591,7 +591,7 @@ firebase.initializeApp({
   appId:"1:858804134465:web:f1c21d0cac9db592285cc0"
 });
 var db=firebase.firestore(),auth=firebase.auth();
-try{emailjs.init('uZ97TAiXZcf9-B1vp');}catch(e){}
+var GRAPH_WORKER='https://gantttracker-email.nubecafiver.workers.dev';
 
 // ════════════════════════════════════════
 // CONSTANTS
@@ -1506,6 +1506,11 @@ function saveProjModal(){
       } else if(editProjId){
         closeProjModal();toast('✅ Proyecto actualizado');
       } else {
+        // New project — notify owner
+        var ownerEmail=Object.keys(USER_DIR).find(function(e){return USER_DIR[e].name===p.propietario;});
+        if(ownerEmail&&p.propietario!==curUser.name){
+          notifyProjectAssign(p.name, p.propietario, ownerEmail);
+        }
         closeProjModal();toast('✅ Proyecto creado');
       }
     })
@@ -1699,60 +1704,367 @@ function saveTaskModal(){
 // DAILY
 // ════════════════════════════════════════
 function renderDailySetup(){
+  var wrap=document.getElementById('daily-inner');if(!wrap)return;
   var td=new Date().toISOString().slice(0,10);
-  document.getElementById('daily-inner').innerHTML=
-    '<div class="page-hd"><div><h2>Captura diaria</h2><p>Registra el avance diario por tarea</p></div>'+
-    '<input type="date" id="daily-date" value="'+td+'" onchange="renderDailyContent()" style="padding:7px 10px;"></div>'+
-    '<div id="daily-content"></div>';
-  renderDailyContent();
-}
-function renderDailyContent(){
-  var dk=(document.getElementById('daily-date')||{}).value||new Date().toISOString().slice(0,10);
-  var logs=dailyLogs.filter(function(l){return l.date===dk;});
-  var stLbl={pendiente:'Pendiente','en progreso':'En progreso',completado:'Completado',bloqueado:'Bloqueado'};
-  var html='<div class="daily-form">'+
-    '<div class="daily-form-title">+ Nuevo registro</div>'+
-    '<div class="daily-form-row">'+
-    '<div class="mf"><label>Tarea</label><select id="log-task" onchange="prefillLog()" style="padding:7px 8px;width:100%;">'+tasks.map(function(t){return'<option value="'+t.id+'">'+t.name.slice(0,60)+'</option>';}).join('')+'</select></div>'+
-    '<div class="mf"><label>Estado</label><select id="log-status" style="padding:7px 8px;width:100%;"><option value="pendiente">Pendiente</option><option value="en progreso">En progreso</option><option value="completado">Completado</option><option value="bloqueado">Bloqueado</option></select></div>'+
-    '<div class="mf"><label>% Avance</label><input type="number" id="log-pct" min="0" max="100" value="0" style="padding:7px 8px;width:80px;"></div>'+
-    '<div class="mf"><label>Semáforo</label><select id="log-sem" style="padding:7px 8px;"><option value="g">🟢</option><option value="y">🟡</option><option value="r">🔴</option></select></div>'+
-    '<div class="mf" style="flex:2;"><label>Comentario</label><input type="text" id="log-comment" placeholder="¿Qué avanzaste hoy?" style="padding:7px 10px;width:100%;"></div>'+
-    '<div class="mf" style="align-self:flex-end;"><button class="btn btn-primary" onclick="addLog(\''+dk+'\')">+ Registrar</button></div>'+
-    '</div></div>';
 
-  html+='<div class="daily-table-wrap"><div class="daily-table-hd"><span>'+logs.length+' registro(s) — '+dk+'</span><button class="btn btn-sm" onclick="exportDay(\''+dk+'\')">⬇ CSV</button></div>';
-  if(logs.length){
-    html+='<div style="overflow-x:auto;"><table><thead><tr><th>Hora</th><th>Usuario</th><th>Tarea</th><th>Estado</th><th>%</th><th>Sem.</th><th>Comentario</th><th></th></tr></thead><tbody>'+
-      logs.map(function(l){return'<tr><td style="font-family:monospace;white-space:nowrap;">'+l.time+'</td><td>'+l.user+'</td><td style="font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+l.taskName+'</td><td>'+(stLbl[l.status]||l.status)+'</td><td style="font-weight:700;">'+l.pct+'%</td><td>'+semDot(l.sem)+'</td><td style="color:var(--c-text2);">'+(l.comment||'—')+'</td><td><button class="btn btn-danger btn-sm" onclick="deleteLog(\''+l.id+'\')">✕</button></td></tr>';}).join('')+'</tbody></table></div>';
-  }else{html+='<div class="empty-msg">Sin registros para este día.</div>';}
-  html+='</div>';
-  document.getElementById('daily-content').innerHTML=html;
+  // Two tabs: Consultores (panel) and Bitácora (old daily)
+  wrap.innerHTML=
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">'+
+      '<div><h2 style="font-size:18px;font-weight:700;color:#111827;">Seguimiento diario</h2>'+
+      '<p style="font-size:12px;color:#6B7280;margin-top:2px;">Panel de consultores y captura de avance</p></div>'+
+      '<input type="date" id="daily-date" value="'+td+'" onchange="renderDailyTabs()" style="padding:7px 10px;border:1px solid #E5E7EB;border-radius:8px;font-size:12px;color:#374151;">'+
+    '</div>'+
+    '<div style="display:flex;gap:2px;margin-bottom:16px;background:#F3F4F6;border-radius:8px;padding:3px;width:fit-content;">'+
+      '<button id="dtab-consultores" onclick="switchDailyTab(\'consultores\')" style="padding:6px 16px;border-radius:6px;border:none;font-size:12px;font-weight:600;cursor:pointer;background:#fff;color:#1B4FD8;box-shadow:0 1px 3px rgba(0,0,0,.1);">Panel consultores</button>'+
+      '<button id="dtab-bitacora" onclick="switchDailyTab(\'bitacora\')" style="padding:6px 16px;border-radius:6px;border:none;font-size:12px;font-weight:500;cursor:pointer;background:transparent;color:#6B7280;">Bitácora diaria</button>'+
+    '</div>'+
+    '<div id="daily-tab-content"></div>';
+
+  renderDailyTabs();
+}
+
+function switchDailyTab(tab){
+  var btns={
+    consultores:document.getElementById('dtab-consultores'),
+    bitacora:document.getElementById('dtab-bitacora')
+  };
+  Object.keys(btns).forEach(function(k){
+    if(!btns[k])return;
+    if(k===tab){btns[k].style.background='#fff';btns[k].style.color='#1B4FD8';btns[k].style.fontWeight='600';btns[k].style.boxShadow='0 1px 3px rgba(0,0,0,.1)';}
+    else{btns[k].style.background='transparent';btns[k].style.color='#6B7280';btns[k].style.fontWeight='500';btns[k].style.boxShadow='none';}
+  });
+  window._dailyTab=tab;
+  renderDailyTabs();
+}
+
+function renderDailyTabs(){
+  var tab=window._dailyTab||'consultores';
+  var wrap=document.getElementById('daily-tab-content');if(!wrap)return;
+  if(tab==='consultores') renderConsultoresPanel(wrap);
+  else renderBitacora(wrap);
+}
+
+function renderConsultoresPanel(wrap){
+  var isAdmin=curUser&&curUser.email===ADMIN_EMAIL;
+
+  // Get visible projects/users
+  var visibleProjects=projects.filter(function(p){
+    if(isAdmin)return true;
+    return p.propietario===curUser.name||p.owner===curUser.name;
+  });
+
+  // Build owner map
+  var ownerMap={};
+  visibleProjects.forEach(function(p){
+    var owner=p.propietario||p.owner||p.createdBy||'Sin asignar';
+    if(!ownerMap[owner])ownerMap[owner]=[];
+    ownerMap[owner].push(p);
+  });
+
+  // If not admin, only show current user
+  if(!isAdmin){ownerMap={};ownerMap[curUser.name]=visibleProjects;}
+
+  var now=new Date();
+  var html='';
+
+  // ── KPI Summary ──
+  var allActive=tasks.filter(function(t){return t.status!=='completado'&&t.status!=='cancelado';});
+  var atRisk=allActive.filter(function(t){return t.sem==='r';});
+  var noMove=allActive.filter(function(t){
+    if(!t.updTs)return true;
+    try{
+      var parts=t.updTs.split(', ')[0].split('/');
+      var d=new Date(2000+parseInt(parts[2]),parseInt(parts[1])-1,parseInt(parts[0]));
+      return (now-d)>3*86400000;
+    }catch(e){return false;}
+  });
+  var completedToday=tasks.filter(function(t){
+    if(t.status!=='completado'||!t.updTs)return false;
+    return t.updTs.indexOf(now.toLocaleDateString('es-MX',{day:'2-digit',month:'2-digit',year:'2-digit'}).replace(/\//g,'/'))!==-1;
+  });
+
+  if(isAdmin){
+    html+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;">'+
+      '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:12px 14px;border-top:3px solid #1B4FD8;">'+
+        '<div style="font-size:20px;font-weight:700;color:#1B4FD8;">'+Object.keys(ownerMap).length+'</div>'+
+        '<div style="font-size:11px;color:#6B7280;margin-top:2px;">Consultores activos</div>'+
+      '</div>'+
+      '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:12px 14px;border-top:3px solid #DC2626;">'+
+        '<div style="font-size:20px;font-weight:700;color:#DC2626;">'+atRisk.length+'</div>'+
+        '<div style="font-size:11px;color:#6B7280;margin-top:2px;">Tareas en riesgo</div>'+
+      '</div>'+
+      '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:12px 14px;border-top:3px solid #D97706;">'+
+        '<div style="font-size:20px;font-weight:700;color:#D97706;">'+noMove.length+'</div>'+
+        '<div style="font-size:11px;color:#6B7280;margin-top:2px;">Sin mover +3 días</div>'+
+      '</div>'+
+      '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:12px 14px;border-top:3px solid #059669;">'+
+        '<div style="font-size:20px;font-weight:700;color:#059669;">'+completedToday.length+'</div>'+
+        '<div style="font-size:11px;color:#6B7280;margin-top:2px;">Completadas hoy</div>'+
+      '</div>'+
+    '</div>';
+  }
+
+  // ── Consultor cards ──
+  Object.keys(ownerMap).sort(function(a,b){
+    if(a===curUser.name)return -1;if(b===curUser.name)return 1;return a.localeCompare(b);
+  }).forEach(function(ownerName){
+    var ownerProjs=ownerMap[ownerName];
+    var ownerEmail=Object.keys(USER_DIR).find(function(e){return USER_DIR[e].name===ownerName;});
+    var ownerColor=ownerEmail?USER_DIR[ownerEmail].color:'#1B4FD8';
+    var ini=ownerName.split(' ').map(function(w){return w[0]||'';}).join('').toUpperCase().slice(0,2);
+
+    var ownerTasks=tasks.filter(function(t){return ownerProjs.some(function(p){return p.name===(t.proyecto||t.proj);})&&t.status!=='completado';});
+    var ownerCompleted=tasks.filter(function(t){return ownerProjs.some(function(p){return p.name===(t.proyecto||t.proj);})&&t.status==='completado';}).length;
+    var ownerRisk=ownerTasks.filter(function(t){return t.sem==='r';}).length;
+    var ownerNoMove=ownerTasks.filter(function(t){
+      if(!t.updTs)return true;
+      try{var parts=t.updTs.split(', ')[0].split('/');var d=new Date(2000+parseInt(parts[2]),parseInt(parts[1])-1,parseInt(parts[0]));return(now-d)>3*86400000;}catch(e){return false;}
+    });
+    var ownerPct=ownerTasks.length?Math.round(ownerTasks.reduce(function(a,t){return a+(t.pct||0);},0)/ownerTasks.length):0;
+
+    // Velocity (pct gained vs 7 days ago - approximate via history)
+    var weekLogs=dailyLogs.filter(function(l){
+      return ownerProjs.some(function(p){return p.name===l.taskProj;})&&l.user===ownerName;
+    });
+    var velocity=weekLogs.length;
+
+    var hasAlert=ownerRisk>0||ownerNoMove.length>0;
+
+    html+='<div style="background:#fff;border:1px solid '+(hasAlert?'#FCA5A5':'#E5E7EB')+';border-radius:12px;margin-bottom:12px;overflow:hidden;">'+
+      '<div style="padding:14px 16px;border-bottom:1px solid #F3F4F6;display:flex;align-items:center;gap:10px;">'+
+        '<div style="width:38px;height:38px;border-radius:50%;background:'+ownerColor+'22;color:'+ownerColor+';display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0;">'+ini+'</div>'+
+        '<div style="flex:1;">'+
+          '<div style="font-size:13px;font-weight:700;color:#111827;">'+ownerName+'</div>'+
+          '<div style="font-size:11px;color:#6B7280;">'+ownerProjs.length+' proyecto(s) · '+ownerTasks.length+' tareas activas</div>'+
+        '</div>'+
+        '<div style="display:flex;align-items:center;gap:12px;">'+
+          (ownerNoMove.length>0?'<div style="display:flex;align-items:center;gap:4px;background:#FEF2F2;padding:4px 10px;border-radius:20px;"><div style="width:7px;height:7px;border-radius:50%;background:#DC2626;"></div><span style="font-size:10px;color:#DC2626;font-weight:600;">'+ownerNoMove.length+' sin mover</span></div>':'')+ 
+          (ownerRisk>0?'<div style="display:flex;align-items:center;gap:4px;background:#FEF3C7;padding:4px 10px;border-radius:20px;"><div style="width:7px;height:7px;border-radius:50%;background:#D97706;"></div><span style="font-size:10px;color:#D97706;font-weight:600;">'+ownerRisk+' en riesgo</span></div>':'')+
+          '<div style="text-align:right;">'+
+            '<div style="font-size:16px;font-weight:700;color:'+ownerColor+';">'+ownerPct+'%</div>'+
+            '<div style="font-size:10px;color:#9CA3AF;">avance</div>'+
+          '</div>'+
+          (isAdmin?'<button onclick="sendReminderEmail(\''+ownerEmail+'\',\''+ownerName+'\')" style="padding:5px 10px;border-radius:6px;border:1px solid #E5E7EB;background:#fff;font-size:11px;color:#374151;cursor:pointer;" title="Enviar recordatorio">📧</button>':'')+
+        '</div>'+
+      '</div>'+
+      // Task list for this owner
+      '<div style="padding:10px 16px;">'+
+        (ownerTasks.length===0?'<div style="font-size:12px;color:#9CA3AF;padding:4px 0;">Sin tareas activas.</div>':
+          ownerTasks.slice(0,5).map(function(t){
+            var ep=t.pct||0;
+            var daysLeft='';
+            if(t.end){var end=new Date(t.end+'T12:00:00');var dl=Math.ceil((end-now)/86400000);daysLeft=dl<0?'<span style="color:#DC2626;font-weight:600;">'+Math.abs(dl)+' días vencida</span>':dl===0?'<span style="color:#D97706;font-weight:600;">Vence hoy</span>':'<span style="color:#6B7280;">'+dl+' días</span>';}
+            var noMoveFlag='';
+            if(t.updTs){try{var parts=t.updTs.split(', ')[0].split('/');var dd=new Date(2000+parseInt(parts[2]),parseInt(parts[1])-1,parseInt(parts[0]));if((now-dd)>3*86400000)noMoveFlag='<span style="font-size:9px;background:#FEE2E2;color:#991B1B;padding:1px 6px;border-radius:10px;margin-left:4px;">+3d sin mover</span>';}catch(e){}}
+            return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid #F9FAFB;">'+
+              '<div style="width:7px;height:7px;border-radius:50%;background:'+(t.sem==='g'?'#059669':t.sem==='y'?'#D97706':'#DC2626')+';flex-shrink:0;"></div>'+
+              '<div style="flex:1;min-width:0;">'+
+                '<div style="font-size:12px;color:#111827;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+t.name+noMoveFlag+'</div>'+
+                '<div style="font-size:10px;color:#6B7280;">'+t.proj+' · '+daysLeft+'</div>'+
+              '</div>'+
+              '<div style="min-width:120px;">'+
+                '<div style="display:flex;align-items:center;gap:6px;">'+
+                  '<div style="flex:1;height:4px;background:#F3F4F6;border-radius:2px;overflow:hidden;">'+
+                    '<div style="height:100%;width:'+ep+'%;background:'+(ep===100?'#059669':ep>=50?'#1B4FD8':'#D97706')+';border-radius:2px;"></div>'+
+                  '</div>'+
+                  '<span style="font-size:10px;font-weight:600;color:#374151;width:28px;text-align:right;">'+ep+'%</span>'+
+                '</div>'+
+              '</div>'+
+              (isAdmin?'<button onclick="openPanel(\''+t.id+'\')" style="padding:3px 8px;border-radius:5px;border:1px solid #E5E7EB;background:#fff;font-size:10px;color:#374151;cursor:pointer;">Ver</button>':'')+
+            '</div>';
+          }).join('')+
+          (ownerTasks.length>5?'<div style="font-size:11px;color:#9CA3AF;padding:5px 0;">...y '+(ownerTasks.length-5)+' tareas más</div>':'')+
+        '')+
+      '</div>'+
+      // Self check-in for current user
+      (ownerName===curUser.name?
+        '<div style="padding:12px 16px;border-top:1px solid #F3F4F6;background:#F8FAFF;">'+
+          '<div style="font-size:11px;font-weight:600;color:#1B4FD8;margin-bottom:8px;">✏️ Captura tu avance de hoy</div>'+
+          '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">'+
+            '<div><div style="font-size:10px;color:#6B7280;margin-bottom:3px;">Tarea</div>'+
+              '<select id="log-task" onchange="prefillLog()" style="font-size:11px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;background:#fff;max-width:200px;">'+
+                ownerTasks.map(function(t){return'<option value="'+t.id+'">'+t.name.slice(0,35)+'</option>';}).join('')+
+              '</select></div>'+
+            '<div><div style="font-size:10px;color:#6B7280;margin-bottom:3px;">Estado</div>'+
+              '<select id="log-status" style="font-size:11px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;background:#fff;">'+
+                '<option value="pendiente">Pendiente</option><option value="en progreso" selected>En progreso</option><option value="completado">Completado</option><option value="bloqueado">Bloqueado</option>'+
+              '</select></div>'+
+            '<div><div style="font-size:10px;color:#6B7280;margin-bottom:3px;">% Avance</div>'+
+              '<input type="number" id="log-pct" min="0" max="100" value="0" style="font-size:11px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;width:70px;background:#fff;"></div>'+
+            '<div><div style="font-size:10px;color:#6B7280;margin-bottom:3px;">Semáforo</div>'+
+              '<select id="log-sem" style="font-size:11px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;background:#fff;">'+
+                '<option value="g">🟢 En tiempo</option><option value="y">🟡 En riesgo</option><option value="r">🔴 Atrasado</option>'+
+              '</select></div>'+
+            '<div><div style="font-size:10px;color:#6B7280;margin-bottom:3px;">¿Hay bloqueo?</div>'+
+              '<select id="log-bloqueo" style="font-size:11px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;background:#fff;">'+
+                '<option value="">Sin bloqueo</option>'+
+                '<option value="Esperando acceso/credenciales">Esperando acceso</option>'+
+                '<option value="Esperando respuesta del proveedor">Esperando proveedor</option>'+
+                '<option value="Dependencia de otra tarea">Dependencia de tarea</option>'+
+                '<option value="Problema técnico">Problema técnico</option>'+
+                '<option value="Falta de información">Falta información</option>'+
+                '<option value="Otro">Otro</option>'+
+              '</select></div>'+
+            '<div style="flex:1;min-width:150px;"><div style="font-size:10px;color:#6B7280;margin-bottom:3px;">Comentario</div>'+
+              '<input type="text" id="log-comment" placeholder="¿Qué avanzaste hoy?" style="font-size:11px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;width:100%;background:#fff;"></div>'+
+            '<button onclick="addLog(new Date().toISOString().slice(0,10))" style="padding:6px 14px;border-radius:6px;border:none;background:#1B4FD8;color:#fff;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">+ Registrar</button>'+
+          '</div>'+
+        '</div>':'')+ 
+    '</div>';
+  });
+
+  wrap.innerHTML=html;
   prefillLog();
 }
-function prefillLog(){var tid=(document.getElementById('log-task')||{}).value;var t=tasks.find(function(x){return x.id===tid;});if(t){document.getElementById('log-status').value=t.status;document.getElementById('log-pct').value=t.pct||0;document.getElementById('log-sem').value=t.sem||'g';}}
+
+function sendReminderEmail(email, name){
+  if(!email){toast('⚠️ No se encontró correo para '+name);return;}
+  var riskTasks=tasks.filter(function(t){
+    var p=projects.find(function(x){return x.name===(t.proyecto||t.proj);});
+    return p&&(p.propietario===name||p.owner===name)&&t.status!=='completado'&&(t.sem==='r'||t.sem==='y');
+  });
+  var html='<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">'+
+    '<div style="background:#D97706;padding:20px 24px;border-radius:8px 8px 0 0;">'+
+      '<h2 style="color:#fff;margin:0;font-size:18px;">⚠️ Recordatorio de seguimiento</h2>'+
+      '<p style="color:#FEF3C7;margin:4px 0 0;font-size:13px;">GanttTracker Pro — CAFIVER</p>'+
+    '</div>'+
+    '<div style="background:#F9FAFB;padding:24px;border:1px solid #E5E7EB;border-top:none;border-radius:0 0 8px 8px;">'+
+      '<p style="color:#374151;font-size:14px;">Hola <strong>'+name+'</strong>,</p>'+
+      '<p style="color:#374151;font-size:14px;">Te enviamos un recordatorio de las tareas que requieren tu atención:</p>'+
+      (riskTasks.length>0?
+        '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:12px 16px;margin:16px 0;">'+
+          riskTasks.map(function(t){
+            var dot=t.sem==='r'?'🔴':'🟡';
+            return '<div style="padding:5px 0;border-bottom:1px solid #F3F4F6;font-size:12px;">'+dot+' <strong>'+t.name+'</strong> — '+t.proj+'<br><span style="color:#9CA3AF;font-size:11px;">Avance: '+(t.pct||0)+'% · Vence: '+(t.end||'—')+'</span></div>';
+          }).join('')+
+        '</div>':
+        '<p style="color:#374151;font-size:13px;">Por favor actualiza el avance de tus tareas activas.</p>')+
+      '<p style="text-align:center;margin:20px 0;">'+
+        '<a href="https://nubecafiver.github.io/gantttracker/" style="background:#1B4FD8;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;">Actualizar mis tareas →</a>'+
+      '</p>'+
+      '<p style="color:#9CA3AF;font-size:11px;text-align:center;">GanttTracker Pro · CAFIVER S.A. de C.V.</p>'+
+    '</div></div>';
+  sendGraphEmail(email, name, '⚠️ Recordatorio de seguimiento — GanttTracker', html)
+    .then(function(r){if(r.success)toast('📧 Recordatorio enviado a '+name);else toast('⚠️ Error: '+JSON.stringify(r));})
+    .catch(function(e){toast('⚠️ Error de red');});
+}
+
+function renderBitacora(wrap){
+  var td=(document.getElementById('daily-date')||{}).value||new Date().toISOString().slice(0,10);
+  var logs=dailyLogs.filter(function(l){return l.date===td;});
+  var stLbl={pendiente:'Pendiente','en progreso':'En progreso',completado:'Completado',bloqueado:'Bloqueado'};
+  var myTasks=tasks.filter(function(t){
+    var p=projects.find(function(x){return x.name===(t.proyecto||t.proj);});
+    return p&&(p.propietario===curUser.name||curUser.email===ADMIN_EMAIL)&&t.status!=='completado';
+  });
+
+  wrap.innerHTML=
+    '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:14px 16px;margin-bottom:14px;">'+
+      '<div style="font-size:12px;font-weight:600;color:#374151;margin-bottom:10px;">+ Nuevo registro — '+td+'</div>'+
+      '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;">'+
+        '<div><div style="font-size:10px;color:#6B7280;margin-bottom:3px;">Tarea</div>'+
+          '<select id="log-task" onchange="prefillLog()" style="font-size:11px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;min-width:180px;">'+
+            tasks.map(function(t){return'<option value="'+t.id+'">'+t.name.slice(0,50)+'</option>';}).join('')+
+          '</select></div>'+
+        '<div><div style="font-size:10px;color:#6B7280;margin-bottom:3px;">Estado</div>'+
+          '<select id="log-status" style="font-size:11px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;">'+
+            '<option value="pendiente">Pendiente</option><option value="en progreso">En progreso</option><option value="completado">Completado</option><option value="bloqueado">Bloqueado</option>'+
+          '</select></div>'+
+        '<div><div style="font-size:10px;color:#6B7280;margin-bottom:3px;">% Avance</div>'+
+          '<input type="number" id="log-pct" min="0" max="100" value="0" style="font-size:11px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;width:70px;"></div>'+
+        '<div><div style="font-size:10px;color:#6B7280;margin-bottom:3px;">Semáforo</div>'+
+          '<select id="log-sem" style="font-size:11px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;">'+
+            '<option value="g">🟢</option><option value="y">🟡</option><option value="r">🔴</option>'+
+          '</select></div>'+
+        '<div style="flex:1;min-width:160px;"><div style="font-size:10px;color:#6B7280;margin-bottom:3px;">Comentario</div>'+
+          '<input type="text" id="log-comment" placeholder="¿Qué avanzaste hoy?" style="font-size:11px;padding:5px 8px;border:1px solid #E5E7EB;border-radius:6px;width:100%;"></div>'+
+        '<button onclick="addLog(\''+td+'\')" style="padding:6px 14px;border-radius:6px;border:none;background:#1B4FD8;color:#fff;font-size:11px;font-weight:700;cursor:pointer;">+ Registrar</button>'+
+      '</div>'+
+    '</div>'+
+    '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:10px;overflow:hidden;">'+
+      '<div style="padding:10px 14px;border-bottom:1px solid #E5E7EB;display:flex;align-items:center;justify-content:space-between;">'+
+        '<span style="font-size:13px;font-weight:600;color:#111827;">'+logs.length+' registro(s) — '+td+'</span>'+
+        '<button onclick="exportDay(\''+td+'\')" style="padding:4px 10px;border-radius:5px;border:1px solid #E5E7EB;background:#fff;font-size:11px;cursor:pointer;">⬇ CSV</button>'+
+      '</div>'+
+      (logs.length?
+        '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;">'+
+          '<thead><tr style="background:#F9FAFB;">'+
+            '<th style="padding:7px 10px;font-size:9px;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #E5E7EB;text-align:left;">Hora</th>'+
+            '<th style="padding:7px 10px;font-size:9px;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #E5E7EB;text-align:left;">Usuario</th>'+
+            '<th style="padding:7px 10px;font-size:9px;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #E5E7EB;text-align:left;">Tarea</th>'+
+            '<th style="padding:7px 10px;font-size:9px;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #E5E7EB;text-align:left;">Estado</th>'+
+            '<th style="padding:7px 10px;font-size:9px;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #E5E7EB;text-align:center;">%</th>'+
+            '<th style="padding:7px 10px;font-size:9px;font-weight:600;color:#9CA3AF;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #E5E7EB;text-align:left;">Comentario</th>'+
+            '<th style="padding:7px 10px;border-bottom:1px solid #E5E7EB;"></th>'+
+          '</tr></thead><tbody>'+
+          logs.map(function(l){
+            return'<tr style="border-bottom:1px solid #F9FAFB;" onmouseover="this.style.background=\'#F9FAFB\'" onmouseout="this.style.background=\'\'">'+
+              '<td style="padding:7px 10px;font-size:11px;color:#6B7280;white-space:nowrap;font-family:monospace;">'+l.time+'</td>'+
+              '<td style="padding:7px 10px;font-size:11px;color:#374151;">'+l.user+'</td>'+
+              '<td style="padding:7px 10px;font-size:11px;color:#111827;font-weight:500;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+l.taskName+'</td>'+
+              '<td style="padding:7px 10px;font-size:11px;">'+stLbl[l.status]+'</td>'+
+              '<td style="padding:7px 10px;font-size:11px;font-weight:700;text-align:center;">'+l.pct+'%</td>'+
+              '<td style="padding:7px 10px;font-size:11px;color:#6B7280;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(l.comment||'—')+'</td>'+
+              '<td style="padding:7px 10px;"><button onclick="deleteLog(\''+l.id+'\')" style="padding:2px 7px;border-radius:4px;border:1px solid #FCA5A5;background:#FEF2F2;color:#DC2626;font-size:10px;cursor:pointer;">✕</button></td>'+
+            '</tr>';
+          }).join('')+
+          '</tbody></table></div>':
+        '<div style="padding:2rem;text-align:center;color:#9CA3AF;font-size:13px;">Sin registros para este día.</div>')+
+    '</div>';
+  prefillLog();
+}
+
+function prefillLog(){
+  var tid=(document.getElementById('log-task')||{}).value;
+  var t=tasks.find(function(x){return x.id===tid;});
+  if(t){
+    var sel=document.getElementById('log-status');if(sel)sel.value=t.status||'en progreso';
+    var pct=document.getElementById('log-pct');if(pct)pct.value=t.pct||0;
+    var sem=document.getElementById('log-sem');if(sem)sem.value=t.sem||'g';
+  }
+}
+
 function addLog(dk){
-  var tid=document.getElementById('log-task').value;var t=tasks.find(function(x){return x.id===tid;});if(!t)return;
+  var tid=document.getElementById('log-task').value;
+  var t=tasks.find(function(x){return x.id===tid;});if(!t)return;
   var status=document.getElementById('log-status').value;
   var pct=Math.min(100,Math.max(0,parseInt(document.getElementById('log-pct').value)||0));
   var sem=document.getElementById('log-sem').value;
   var comment=document.getElementById('log-comment').value.trim();
-  var now=new Date(),time=now.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'});
-  var log={id:uid(),date:dk,time:time,taskId:tid,taskName:t.name,taskProj:t.proj,user:curUser.name,status:status,pct:pct,sem:sem,comment:comment};
+  var bloqueoEl=document.getElementById('log-bloqueo');
+  var bloqueo=bloqueoEl?bloqueoEl.value:'';
+  var now2=new Date(),time=now2.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'});
+  var log={id:uid(),date:dk,time:time,taskId:tid,taskName:t.name,taskProj:t.proj||t.proyecto,
+    user:curUser.name,status:status,pct:pct,sem:sem,comment:comment,bloqueo:bloqueo};
   dailyLogs.push(log);
   db.collection('dailylogs').doc(log.id).set(log);
   t.status=status;t.pct=pct;t.sem=sem;if(pct===100)t.status='completado';
-  t.updBy=curUser.name;t.updTs=nowStr();
-  fbSaveTask(t);renderDailyContent();toast('✅ Registro guardado');
-}
-function deleteLog(lid){confirmAction('¿Eliminar registro?','',function(){db.collection('dailylogs').doc(lid).delete();dailyLogs=dailyLogs.filter(function(x){return x.id!==lid;});renderDailyContent();toast('Eliminado');});}
-function exportDay(dk){
-  var logs=dailyLogs.filter(function(l){return l.date===dk;});if(!logs.length){toast('Sin registros');return;}
-  var csv='Hora,Usuario,Proyecto,Tarea,Estado,% Avance,Semáforo,Comentario\n';
-  logs.forEach(function(l){csv+=l.time+',"'+l.user+'","'+l.taskProj+'","'+l.taskName+'","'+l.status+'",'+l.pct+'%,"'+(l.sem==='g'?'Verde':l.sem==='y'?'Amarillo':'Rojo')+'","'+(l.comment||'')+'"\n';});
-  var a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'}));a.download='reporte_'+dk+'.csv';a.click();toast('CSV exportado');
+  t.updBy=curUser.name;t.updTs=new Date().toLocaleString('es-MX',{dateStyle:'short',timeStyle:'short'});
+  fbSaveTask(t);
+  renderDailyTabs();
+  toast('✅ Avance registrado');
 }
 
+function deleteLog(lid){
+  confirmAction('¿Eliminar registro?','',function(){
+    db.collection('dailylogs').doc(lid).delete();
+    dailyLogs=dailyLogs.filter(function(x){return x.id!==lid;});
+    renderDailyTabs();toast('Eliminado');
+  });
+}
+
+function exportDay(dk){
+  var logs=dailyLogs.filter(function(l){return l.date===dk;});if(!logs.length){toast('Sin registros');return;}
+  var csv='Hora,Usuario,Proyecto,Tarea,Estado,% Avance,Semáforo,Bloqueo,Comentario\n';
+  logs.forEach(function(l){
+    csv+=l.time+',"'+l.user+'","'+l.taskProj+'","'+l.taskName+'","'+l.status+'",'+l.pct+'%,"'+
+      (l.sem==='g'?'Verde':l.sem==='y'?'Amarillo':'Rojo')+'","'+(l.bloqueo||'')+'","'+(l.comment||'')+'"\n';
+  });
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'}));
+  a.download='bitacora_'+dk+'.csv';a.click();
+  toast('CSV exportado');
+}
 // ════════════════════════════════════════
 // HISTORIAL
 // ════════════════════════════════════════
@@ -2028,13 +2340,89 @@ function exportReportePDF(){
   a.click();
   toast('📄 Reporte exportado — ábrelo en Chrome e imprime como PDF');
 }
-function notifyAssign(task,prevAssign){
+function sendGraphEmail(to, toName, subject, html){
+  return fetch(GRAPH_WORKER, {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({to:to, toName:toName, subject:subject, html:html})
+  }).then(function(r){return r.json();});
+}
+
+function notifyAssign(task, prevAssign){
   var newA=(task.assign||'').trim();if(!newA||newA===prevAssign)return;
   newA.split(/[\/,&+]/).map(function(s){return s.trim();}).filter(Boolean).forEach(function(name){
     var entry=null;
     Object.keys(USER_DIR).forEach(function(email){if(USER_DIR[email].name.toLowerCase().indexOf(name.toLowerCase())>=0)entry={email:email,name:USER_DIR[email].name};});
-    if(entry){try{emailjs.send('service_sxw6hr8','template_ouuy72c',{to_email:entry.email,to_name:entry.name,from_name:'GanttTracker Pro',subject:'Tarea asignada: '+task.name,message:'Hola '+entry.name+',\n\nSe te asignó la tarea:\nProyecto: '+task.proj+'\nTarea: '+task.name+'\nInicio: '+(task.start||'—')+'\nFin: '+(task.end||'—')+'\nAsignado por: '+curUser.name+'\n\nSaludos,\nGanttTracker Pro'}).then(function(){toast('📧 Correo enviado a '+entry.name);});}catch(e){}}
+    if(!entry)return;
+    var html='<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">'+
+      '<div style="background:#1B4FD8;padding:20px 24px;border-radius:8px 8px 0 0;">'+
+        '<h2 style="color:#fff;margin:0;font-size:18px;">📋 Nueva tarea asignada</h2>'+
+        '<p style="color:#93C5FD;margin:4px 0 0;font-size:13px;">GanttTracker Pro — CAFIVER</p>'+
+      '</div>'+
+      '<div style="background:#F9FAFB;padding:24px;border:1px solid #E5E7EB;border-top:none;border-radius:0 0 8px 8px;">'+
+        '<p style="color:#374151;font-size:14px;">Hola <strong>'+entry.name+'</strong>,</p>'+
+        '<p style="color:#374151;font-size:14px;">Se te ha asignado la siguiente tarea:</p>'+
+        '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:16px;margin:16px 0;">'+
+          '<table style="width:100%;font-size:13px;border-collapse:collapse;">'+
+            '<tr><td style="color:#6B7280;padding:5px 0;width:100px;">Proyecto</td><td style="color:#111827;font-weight:600;">'+task.proj+'</td></tr>'+
+            '<tr><td style="color:#6B7280;padding:5px 0;">Tarea</td><td style="color:#111827;font-weight:600;">'+task.name+'</td></tr>'+
+            '<tr><td style="color:#6B7280;padding:5px 0;">Inicio</td><td style="color:#111827;">'+(task.start||'—')+'</td></tr>'+
+            '<tr><td style="color:#6B7280;padding:5px 0;">Fecha límite</td><td style="color:#DC2626;font-weight:600;">'+(task.end||'—')+'</td></tr>'+
+            '<tr><td style="color:#6B7280;padding:5px 0;">Asignado por</td><td style="color:#111827;">'+curUser.name+'</td></tr>'+
+          '</table>'+
+        '</div>'+
+        '<p style="text-align:center;margin:20px 0;">'+
+          '<a href="https://nubecafiver.github.io/gantttracker/" style="background:#1B4FD8;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;">Ver en GanttTracker →</a>'+
+        '</p>'+
+        '<p style="color:#9CA3AF;font-size:11px;text-align:center;margin-top:16px;">GanttTracker Pro · CAFIVER S.A. de C.V.</p>'+
+      '</div>'+
+    '</div>';
+    sendGraphEmail(entry.email, entry.name, '📋 Nueva tarea asignada: '+task.name, html)
+      .then(function(r){if(r.success)toast('📧 Notificación enviada a '+entry.name);})
+      .catch(function(){toast('⚠️ Error enviando notificación');});
   });
+}
+
+function notifyProjectAssign(projName, ownerName, ownerEmail){
+  if(!ownerEmail)return;
+  var proj=projects.find(function(p){return p.name===projName;});
+  var projTasks=tasks.filter(function(t){return t.proj===projName||t.proyecto===projName;});
+  var html='<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;">'+
+    '<div style="background:#1B4FD8;padding:20px 24px;border-radius:8px 8px 0 0;">'+
+      '<h2 style="color:#fff;margin:0;font-size:18px;">📁 Proyecto asignado</h2>'+
+      '<p style="color:#93C5FD;margin:4px 0 0;font-size:13px;">GanttTracker Pro — CAFIVER</p>'+
+    '</div>'+
+    '<div style="background:#F9FAFB;padding:24px;border:1px solid #E5E7EB;border-top:none;border-radius:0 0 8px 8px;">'+
+      '<p style="color:#374151;font-size:14px;">Hola <strong>'+ownerName+'</strong>,</p>'+
+      '<p style="color:#374151;font-size:14px;">Se te ha asignado el siguiente proyecto:</p>'+
+      '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:16px;margin:16px 0;">'+
+        '<table style="width:100%;font-size:13px;border-collapse:collapse;">'+
+          '<tr><td style="color:#6B7280;padding:5px 0;width:120px;">Proyecto</td><td style="color:#111827;font-weight:600;">'+projName+'</td></tr>'+
+          (proj?'<tr><td style="color:#6B7280;padding:5px 0;">Descripción</td><td style="color:#111827;">'+(proj.desc||'—')+'</td></tr>':'')+ 
+          (proj?'<tr><td style="color:#6B7280;padding:5px 0;">Inicio</td><td style="color:#111827;">'+(proj.start||'—')+'</td></tr>':'')+ 
+          (proj?'<tr><td style="color:#6B7280;padding:5px 0;">Fecha límite</td><td style="color:#DC2626;font-weight:600;">'+(proj.end||'—')+'</td></tr>':'')+
+          '<tr><td style="color:#6B7280;padding:5px 0;">Tareas</td><td style="color:#111827;">'+projTasks.length+' tarea(s) asignadas</td></tr>'+
+          '<tr><td style="color:#6B7280;padding:5px 0;">Asignado por</td><td style="color:#111827;">'+curUser.name+'</td></tr>'+
+        '</table>'+
+      '</div>'+
+      (projTasks.length>0?
+        '<div style="background:#fff;border:1px solid #E5E7EB;border-radius:8px;padding:12px 16px;margin-bottom:16px;">'+
+          '<p style="color:#374151;font-size:13px;font-weight:600;margin:0 0 8px;">Tus tareas:</p>'+
+          projTasks.slice(0,10).map(function(t){
+            return '<div style="padding:4px 0;border-bottom:1px solid #F3F4F6;font-size:12px;color:#374151;">'+
+              '• '+t.name+' <span style="color:#9CA3AF;">('+t.start+' → '+t.end+')</span></div>';
+          }).join('')+
+          (projTasks.length>10?'<p style="font-size:11px;color:#9CA3AF;margin:6px 0 0;">...y '+(projTasks.length-10)+' más</p>':'')+
+        '</div>':'')+
+      '<p style="text-align:center;margin:20px 0;">'+
+        '<a href="https://nubecafiver.github.io/gantttracker/" style="background:#1B4FD8;color:#fff;padding:10px 24px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:600;">Ver en GanttTracker →</a>'+
+      '</p>'+
+      '<p style="color:#9CA3AF;font-size:11px;text-align:center;margin-top:16px;">GanttTracker Pro · CAFIVER S.A. de C.V.</p>'+
+    '</div>'+
+  '</div>';
+  sendGraphEmail(ownerEmail, ownerName, '📁 Proyecto asignado: '+projName, html)
+    .then(function(r){if(r.success)toast('📧 Notificación enviada a '+ownerName);})
+    .catch(function(){toast('⚠️ Error enviando notificación');});
 }
 
 // ════════════════════════════════════════
