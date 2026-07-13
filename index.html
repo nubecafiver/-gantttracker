@@ -504,7 +504,18 @@ tbody tr:hover{background:#F9FAFB;}
       </div>
     </div>
     <div class="mf-row">
-      <div class="mf"><label>Asignado a</label><input type="text" id="tm-assign" placeholder="Persona responsable..."></div>
+      <div class="mf"><label>Asignado a</label>
+      <select id="tm-assign" style="width:100%;padding:8px 10px;">
+        <option value="">— Sin asignar —</option>
+        <option value="Alan Osorio Cruz">Alan Osorio Cruz</option>
+        <option value="Valery Lopez Olmedo">Valery Lopez Olmedo</option>
+        <option value="Daniela Gomez Aleluya">Daniela Gomez Aleluya</option>
+        <option value="Rafael Aguila">Rafael Aguila</option>
+        <option value="Roberto Amaya">Roberto Amaya</option>
+        <option value="Usuario1">Usuario1</option>
+        <option value="Usuario2">Usuario2</option>
+      </select>
+    </div>
       <div class="mf"><label>% Avance</label><input type="number" id="tm-pct" min="0" max="100" value="0"></div>
     </div>
     <div class="mf-row">
@@ -617,7 +628,7 @@ var USER_DIR={
 // ════════════════════════════════════════
 var tasks=[],projects=[],fases=[],actLog=[],dailyLogs=[],comments=[],evidencias=[];
 var curUser=null,curView='gantt',openTaskId=null,dpCurTab='details';
-var ganttStart=new Date(),ganttDays=120,collapsed=new Set(),editProjId=null;
+var ganttStart=new Date(),ganttDays=120,collapsed=new Set(),editProjId=null,_orderProj={},_orderFase={},_orderTask={};
 var _cb=null;
 
 ganttStart.setDate(ganttStart.getDate()-14);
@@ -755,6 +766,16 @@ function loadData(){
   db.collection('dailylogs').get().then(function(s){dailyLogs=s.docs.map(function(d){return d.data();});});
   // History
   db.collection('history').doc('main').get().then(function(doc){if(doc.exists)actLog=doc.data().items||[];});
+  // Start collapsed — show owners + project names, collapse tasks/fases
+  db.collection('projects').onSnapshot(function(s){
+    if(collapsed.size===0){
+      s.docs.forEach(function(d){
+        var p=d.data();
+        // Collapse each project (hides fases and tasks inside)
+        collapsed.add('PROJ:'+p.name);
+      });
+    }
+  });
   switchView('gantt');
 }
 function fbSaveTask(t){
@@ -831,10 +852,10 @@ function renderGantt(){
       var ownerPct=ownerTasks.length?Math.round(ownerTasks.reduce(function(a,t){return a+(t.status==='completado'?100:(t.pct||0));},0)/ownerTasks.length):0;
       var isC=collapsed.has('OWNER:'+ownerName);
       rows.push({type:'owner',name:ownerName,color:ownerColor,pct:ownerPct,collapsed:isC});
-      if(!isC) addProjRows(rows,ownerProjs,filtTasks,28);
+      if(!isC){ var sortedOwnerProjs=sortByOrder(ownerProjs,'proj',ownerName,function(p){return p.id;}); addProjRows(rows,sortedOwnerProjs,filtTasks,28);}
     });
   } else {
-    addProjRows(rows,visibleProjects,filtTasks,8);
+    var sortedVP=sortByOrder(visibleProjects,'proj',curUser.name,function(p){return p.id;});addProjRows(rows,sortedVP,filtTasks,8);
   }
 
   // Build LEFT panel HTML from rows
@@ -949,11 +970,18 @@ function addProjRows(rows,projs,filtTasks,baseIndent){
     var faseNames=[];
     fases.filter(function(f){return f.proyecto===projName;}).forEach(function(f){if(faseNames.indexOf(f.nombre)<0)faseNames.push(f.nombre);});
     projTasks.forEach(function(t){if(t.fase&&faseNames.indexOf(t.fase)<0)faseNames.push(t.fase);});
+    // Apply fase order
+    var faseOrder=getOrder('fase',projName);
+    if(faseOrder.length)faseNames=faseNames.sort(function(a,b){var ia=faseOrder.indexOf(a),ib=faseOrder.indexOf(b);if(ia===-1&&ib===-1)return 0;if(ia===-1)return 1;if(ib===-1)return -1;return ia-ib;});
 
     if(faseNames.length>0){
       faseNames.forEach(function(faseName){
         var faseTasks=projTasks.filter(function(t){return t.fase===faseName;});
+        // Apply task order within fase
+        var taskCtx=projName+'|'+faseName;
+        faseTasks=sortByOrder(faseTasks,'task',taskCtx,function(t){return t.id;});
         var faseFilt=projFiltTasks.filter(function(t){return t.fase===faseName;});
+        faseFilt=sortByOrder(faseFilt,'task',taskCtx,function(t){return t.id;});
         if(!faseTasks.length)return;
         var fasePct=Math.round(faseTasks.reduce(function(a,t){return a+(t.status==='completado'?100:(t.pct||0));},0)/faseTasks.length);
         var isCF=collapsed.has('FASE:'+projName+'|'+faseName);
@@ -1065,83 +1093,231 @@ function toggleGrp(g){
 function selRow(tid){document.querySelectorAll('.grow.sel').forEach(function(e){e.classList.remove('sel');});var el=document.getElementById('lr_'+tid);if(el)el.classList.add('sel');}
 
 // ════════════════════════════════════════
-// DRAG & DROP — LEFT PANEL (change fase/project)
+// DRAG & DROP — LEFT PANEL
+// Two modes:
+//   A) Vertical reorder (drag task row up/down within same fase/proj)
+//   B) Move to different fase/project (drop on group header)
 // ════════════════════════════════════════
-var _dragTaskId=null, _dragGhost=null;
+var _dragTaskId=null,_dragGhost=null,_dragMode=null,_dragSrcType=null;
+
+// Order storage helpers
+function getOrder(collection, key){
+  try{var o=JSON.parse(localStorage.getItem('gt_order_'+collection)||'{}');return o[key]||[];}catch(e){return[];}
+}
+function setOrder(collection, key, arr){
+  try{var o=JSON.parse(localStorage.getItem('gt_order_'+collection)||'{}');o[key]=arr;localStorage.setItem('gt_order_'+collection,JSON.stringify(o));}catch(e){}
+}
+function sortByOrder(items, collection, key, idFn){
+  var order=getOrder(collection,key);
+  if(!order.length)return items;
+  return items.slice().sort(function(a,b){
+    var ia=order.indexOf(idFn(a)),ib=order.indexOf(idFn(b));
+    if(ia===-1&&ib===-1)return 0;
+    if(ia===-1)return 1;if(ib===-1)return -1;
+    return ia-ib;
+  });
+}
 
 function initRowDrag(){
-  // Make task rows in left panel draggable
-  document.querySelectorAll('#gl-body .grow:not(.grow-grp):not(.grow-overall)').forEach(function(row){
-    var tid=row.id.replace('lr_','');
-    if(!tid)return;
+  var glBody=document.getElementById('gl-body');if(!glBody)return;
+
+  // ── A) VERTICAL REORDER ──
+  // Make task rows draggable for vertical reorder
+  glBody.querySelectorAll('.grow:not(.grow-grp):not(.grow-overall)').forEach(function(row){
+    var tid=row.id.replace('lr_','');if(!tid)return;
     row.draggable=true;
+    row.style.cursor='grab';
+
     row.addEventListener('dragstart',function(e){
       _dragTaskId=tid;
-      var t=tasks.find(function(x){return x.id===tid;});
+      _dragMode='reorder';
+      _dragSrcType='task';
       e.dataTransfer.effectAllowed='move';
       e.dataTransfer.setData('text/plain',tid);
-      // Create ghost
       _dragGhost=document.createElement('div');
       _dragGhost.className='drag-ghost';
-      _dragGhost.textContent='📋 '+(t?t.name:'Tarea').slice(0,40);
+      var t=tasks.find(function(x){return x.id===tid;});
+      _dragGhost.textContent='↕ '+(t?t.name:'Tarea').slice(0,40);
       document.body.appendChild(_dragGhost);
       e.dataTransfer.setDragImage(document.createElement('div'),0,0);
-      setTimeout(function(){row.classList.add('dragging');},0);
+      setTimeout(function(){row.style.opacity='.4';},0);
     });
-    row.addEventListener('dragend',function(){
-      row.classList.remove('dragging');
-      if(_dragGhost){_dragGhost.remove();_dragGhost=null;}
-      document.querySelectorAll('.grow.drag-over').forEach(function(el){el.classList.remove('drag-over');});
-      _dragTaskId=null;
-    });
-  });
 
-  // Make group/fase rows drop targets
-  document.querySelectorAll('#gl-body .grow-grp').forEach(function(row){
+    row.addEventListener('dragend',function(){
+      row.style.opacity='1';row.style.cursor='grab';
+      if(_dragGhost){_dragGhost.remove();_dragGhost=null;}
+      glBody.querySelectorAll('.grow.drag-over-top,.grow.drag-over-bottom').forEach(function(el){
+        el.classList.remove('drag-over-top','drag-over-bottom');
+      });
+      _dragTaskId=null;_dragMode=null;_dragSrcType=null;
+    });
+
+    // Hover effect while dragging over another task row
     row.addEventListener('dragover',function(e){
-      if(!_dragTaskId)return;
+      if(!_dragTaskId||_dragTaskId===tid)return;
       e.preventDefault();
       e.dataTransfer.dropEffect='move';
-      document.querySelectorAll('.grow.drag-over').forEach(function(el){el.classList.remove('drag-over');});
-      row.classList.add('drag-over');
+      glBody.querySelectorAll('.grow.drag-over-top,.grow.drag-over-bottom').forEach(function(el){
+        if(el!==row){el.classList.remove('drag-over-top','drag-over-bottom');}
+      });
+      var rect=row.getBoundingClientRect();
+      var mid=rect.top+rect.height/2;
+      if(e.clientY<mid){row.classList.add('drag-over-top');row.classList.remove('drag-over-bottom');}
+      else{row.classList.add('drag-over-bottom');row.classList.remove('drag-over-top');}
     });
-    row.addEventListener('dragleave',function(){row.classList.remove('drag-over');});
+
+    row.addEventListener('dragleave',function(){
+      row.classList.remove('drag-over-top','drag-over-bottom');
+    });
+
     row.addEventListener('drop',function(e){
       e.preventDefault();
-      row.classList.remove('drag-over');
-      if(!_dragTaskId)return;
-      var t=tasks.find(function(x){return x.id===_dragTaskId;});
-      if(!t)return;
-      // Determine target: is it a PROJ or FASE row?
-      var rowText=row.querySelector('.task-lbl')?row.querySelector('.task-lbl').textContent.trim():'';
-      // Check if it's a project (has g-dot with box-shadow containing 44)
-      var isProjRow=row.style.background&&row.style.background.indexOf('0.08')!==-1;
-      if(isProjRow){
-        // Drop on project — change proyecto, clear fase
-        confirmAction('¿Mover tarea?','"'+t.name.slice(0,50)+'" → Proyecto: '+rowText,function(){
-          t.proyecto=rowText;t.proj=rowText;t.fase='';t.updBy=curUser.name;t.updTs=nowStr();
-          fbSaveTask(t);toast('✅ Tarea movida a: '+rowText);
+      row.classList.remove('drag-over-top','drag-over-bottom');
+      if(!_dragTaskId||_dragTaskId===tid)return;
+
+      var srcTask=tasks.find(function(x){return x.id===_dragTaskId;});
+      var tgtTask=tasks.find(function(x){return x.id===tid;});
+      if(!srcTask||!tgtTask)return;
+
+      // Same fase/proj — reorder
+      var sameCtx=(srcTask.fase||'')===(tgtTask.fase||'')&&(srcTask.proyecto||srcTask.proj)===(tgtTask.proyecto||tgtTask.proj);
+      if(sameCtx){
+        var ctx=(srcTask.proyecto||srcTask.proj)+'|'+(srcTask.fase||'');
+        var siblings=tasks.filter(function(t){
+          return(t.proyecto||t.proj)===(srcTask.proyecto||srcTask.proj)&&(t.fase||'')===(srcTask.fase||'');
         });
+        var order=getOrder('task',ctx);
+        if(!order.length)order=siblings.map(function(t){return t.id;});
+        var fromIdx=order.indexOf(_dragTaskId);
+        var toIdx=order.indexOf(tid);
+        if(fromIdx===-1)order.push(_dragTaskId);
+        else order.splice(fromIdx,1);
+        var rect=row.getBoundingClientRect();
+        var insertAfter=e.clientY>=rect.top+rect.height/2;
+        var newToIdx=order.indexOf(tid);
+        order.splice(insertAfter?newToIdx+1:newToIdx,0,_dragTaskId);
+        setOrder('task',ctx,order);
+        renderGantt();
+        toast('↕ Tarea reordenada');
       } else {
-        // Drop on fase row — keep project, change fase
-        var faseName=rowText;
-        // Find what project this fase belongs to
-        var faseObj=fases.find(function(f){return f.nombre===faseName;});
-        var projName=faseObj?faseObj.proyecto:(t.proyecto||t.proj);
-        confirmAction('¿Mover tarea?','"'+t.name.slice(0,50)+'" → Fase: '+faseName,function(){
-          t.proyecto=projName;t.proj=projName;t.fase=faseName;t.updBy=curUser.name;t.updTs=nowStr();
-          fbSaveTask(t);toast('✅ Tarea movida a fase: '+faseName);
+        // Different fase — move task to target's fase
+        var tgtFase=tgtTask.fase||'';
+        var tgtProj=tgtTask.proyecto||tgtTask.proj;
+        confirmAction('¿Mover tarea?','"'+srcTask.name.slice(0,50)+'" → Fase: '+(tgtFase||tgtProj),function(){
+          srcTask.fase=tgtFase;srcTask.proyecto=tgtProj;srcTask.proj=tgtProj;
+          srcTask.updBy=curUser.name;srcTask.updTs=nowStr();
+          fbSaveTask(srcTask);toast('✅ Tarea movida');
         });
       }
     });
   });
+
+  // ── B) MOVE TO DIFFERENT GROUP (drop on grp headers) ──
+  glBody.querySelectorAll('.grow-grp').forEach(function(row){
+    row.addEventListener('dragover',function(e){
+      if(!_dragTaskId)return;
+      e.preventDefault();e.dataTransfer.dropEffect='move';
+      glBody.querySelectorAll('.grow.drag-over').forEach(function(el){el.classList.remove('drag-over');});
+      row.classList.add('drag-over');
+    });
+    row.addEventListener('dragleave',function(){row.classList.remove('drag-over');});
+    row.addEventListener('drop',function(e){
+      e.preventDefault();row.classList.remove('drag-over');
+      if(!_dragTaskId)return;
+      var t=tasks.find(function(x){return x.id===_dragTaskId;});if(!t)return;
+      var rowText=(row.querySelector('.task-lbl')||{}).textContent||'';
+      var faseObj=fases.find(function(f){return f.nombre===rowText;});
+      if(faseObj){
+        confirmAction('¿Mover a fase?','"'+t.name.slice(0,50)+'" → '+rowText,function(){
+          t.fase=rowText;t.proyecto=faseObj.proyecto;t.proj=faseObj.proyecto;
+          t.updBy=curUser.name;t.updTs=nowStr();fbSaveTask(t);toast('✅ Movido a fase: '+rowText);
+        });
+      } else {
+        var isProjRow=!!projects.find(function(p){return p.name===rowText;});
+        if(isProjRow){
+          confirmAction('¿Mover a proyecto?','"'+t.name.slice(0,50)+'" → '+rowText,function(){
+            t.proyecto=rowText;t.proj=rowText;t.fase='';
+            t.updBy=curUser.name;t.updTs=nowStr();fbSaveTask(t);toast('✅ Movido a: '+rowText);
+          });
+        }
+      }
+    });
+  });
+
+  // ── C) PROJECT ROW VERTICAL REORDER ──
+  glBody.querySelectorAll('.grow-grp').forEach(function(row){
+    var lblEl=row.querySelector('.task-lbl,.grp-lbl');
+    var lbl=lblEl?lblEl.textContent.trim():'';
+    var projObj=projects.find(function(p){return p.name===lbl;});
+    if(!projObj)return; // Skip fase rows for proj drag
+    row.draggable=true;
+    row.style.cursor='grab';
+    row.addEventListener('dragstart',function(e){
+      if(_dragTaskId)return; // Task drag takes priority
+      _dragMode='proj-reorder';
+      _dragSrcType='proj';
+      e.dataTransfer.effectAllowed='move';
+      e.dataTransfer.setData('proj-id',projObj.id);
+      _dragGhost=document.createElement('div');
+      _dragGhost.className='drag-ghost';
+      _dragGhost.textContent='↕ '+lbl.slice(0,40);
+      document.body.appendChild(_dragGhost);
+      e.dataTransfer.setDragImage(document.createElement('div'),0,0);
+      setTimeout(function(){row.style.opacity='.5';},0);
+      window._dragProjId=projObj.id;
+      window._dragProjOwner=projObj.propietario||projObj.owner||projObj.createdBy;
+    });
+    row.addEventListener('dragend',function(){
+      row.style.opacity='1';row.style.cursor='grab';
+      if(_dragGhost){_dragGhost.remove();_dragGhost=null;}
+      glBody.querySelectorAll('.grow.drag-over-top,.grow.drag-over-bottom').forEach(function(el){
+        el.classList.remove('drag-over-top','drag-over-bottom');
+      });
+      window._dragProjId=null;_dragMode=null;
+    });
+    row.addEventListener('dragover',function(e){
+      if(!window._dragProjId||window._dragProjId===projObj.id)return;
+      var srcProj=projects.find(function(p){return p.id===window._dragProjId;});
+      if(!srcProj)return;
+      var sameOwner=(srcProj.propietario||srcProj.owner)===(projObj.propietario||projObj.owner);
+      if(!sameOwner)return;
+      e.preventDefault();e.stopPropagation();
+      e.dataTransfer.dropEffect='move';
+      glBody.querySelectorAll('.grow.drag-over-top,.grow.drag-over-bottom').forEach(function(el){
+        if(el!==row){el.classList.remove('drag-over-top','drag-over-bottom');}
+      });
+      var rect=row.getBoundingClientRect();
+      if(e.clientY<rect.top+rect.height/2){row.classList.add('drag-over-top');row.classList.remove('drag-over-bottom');}
+      else{row.classList.add('drag-over-bottom');row.classList.remove('drag-over-top');}
+    });
+    row.addEventListener('dragleave',function(){row.classList.remove('drag-over-top','drag-over-bottom');});
+    row.addEventListener('drop',function(e){
+      row.classList.remove('drag-over-top','drag-over-bottom');
+      if(!window._dragProjId||window._dragProjId===projObj.id)return;
+      var srcProj=projects.find(function(p){return p.id===window._dragProjId;});
+      if(!srcProj)return;
+      var owner=srcProj.propietario||srcProj.owner||srcProj.createdBy;
+      var ownerProjs=projects.filter(function(p){return(p.propietario||p.owner||p.createdBy)===owner;});
+      var order=getOrder('proj',owner);
+      if(!order.length)order=ownerProjs.map(function(p){return p.id;});
+      var fromIdx=order.indexOf(window._dragProjId);
+      if(fromIdx===-1)order.push(window._dragProjId);else order.splice(fromIdx,1);
+      var rect=row.getBoundingClientRect();
+      var insertAfter=e.clientY>=rect.top+rect.height/2;
+      var tgtIdx=order.indexOf(projObj.id);
+      if(tgtIdx===-1)order.push(window._dragProjId);
+      else order.splice(insertAfter?tgtIdx+1:tgtIdx,0,window._dragProjId);
+      setOrder('proj',owner,order);
+      e.preventDefault();e.stopPropagation();
+      renderGantt();toast('↕ Proyecto reordenado');
+    });
+  });
+
+  // Ghost follow mouse
+  document.addEventListener('dragover',function(e){
+    if(_dragGhost){_dragGhost.style.left=(e.clientX+12)+'px';_dragGhost.style.top=(e.clientY-10)+'px';}
+  });
 }
-
-// Update ghost position on mouse move
-document.addEventListener('dragover',function(e){
-  if(_dragGhost){_dragGhost.style.left=(e.clientX+12)+'px';_dragGhost.style.top=(e.clientY-10)+'px';}
-});
-
 // ════════════════════════════════════════
 // DRAG & DROP — GANTT BARS (change dates)
 // ════════════════════════════════════════
