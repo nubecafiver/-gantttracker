@@ -118,7 +118,7 @@ select option{background:var(--c-bg3);}
 .gl-body::-webkit-scrollbar{display:none;}
 .grow{height:36px;min-height:36px;max-height:36px;box-sizing:border-box;display:grid;grid-template-columns:1fr 70px;align-items:center;border-bottom:1px solid #E5E7EB;cursor:pointer;transition:background var(--trans);user-select:none;overflow:hidden;}
 .grow:hover:not(.grow-grp){background:#EBF0FD;}
-.grow-grp{background:#F9FAFB;cursor:default;border-bottom:1px solid #E5E7EB;height:36px;min-height:36px;max-height:36px;box-sizing:border-box;}
+.grow-grp{background:#F9FAFB;cursor:default;border-bottom:1px solid #E5E7EB;height:36px;min-height:36px;max-height:36px;box-sizing:border-box;} .fase-handle{cursor:grab!important;} .fase-handle:active{cursor:grabbing!important;}
 .grow-overall{background:#F0F4FF;height:36px;min-height:36px;max-height:36px;box-sizing:border-box;border-bottom:1px solid #E5E7EB;}
 .grow.sel{background:#DBEAFE!important;}
 .gcell-n{display:flex;align-items:center;gap:6px;padding:0 10px;overflow:hidden;}
@@ -1310,6 +1310,101 @@ function initRowDrag(){
       setOrder('proj',owner,order);
       e.preventDefault();e.stopPropagation();
       renderGantt();toast('↕ Proyecto reordenado');
+    });
+  });
+
+  // ── D) FASE ROW VERTICAL REORDER ──
+  glBody.querySelectorAll('.grow-grp').forEach(function(row){
+    // Only fase rows (have ⬡ span and data-fase)
+    var faseSpan=row.querySelector('span[style*="⬡"]');
+    var lblEl=row.querySelector('.task-lbl');
+    if(!lblEl)return;
+    var lbl=lblEl.textContent.trim();
+    var isFaseRow=!!fases.find(function(f){return f.nombre===lbl;});
+    if(!isFaseRow)return;
+
+    var faseObj=fases.find(function(f){return f.nombre===lbl;});
+    if(!faseObj)return;
+
+    // Add a drag handle icon before the arrow button
+    var gcell=row.querySelector('.gcell-n');
+    if(gcell&&!gcell.querySelector('.fase-handle')){
+      var handle=document.createElement('span');
+      handle.className='fase-handle';
+      handle.title='Arrastrar para reordenar fase';
+      handle.textContent='⠿';
+      handle.style.cssText='cursor:grab;color:#9CA3AF;font-size:13px;flex-shrink:0;user-select:none;padding:0 3px;';
+      handle.draggable=true;
+
+      handle.addEventListener('dragstart',function(e){
+        e.stopPropagation();
+        window._dragFaseName=faseObj.nombre;
+        window._dragFaseProj=faseObj.proyecto;
+        _dragMode='fase-reorder';
+        e.dataTransfer.effectAllowed='move';
+        e.dataTransfer.setData('text/plain',faseObj.nombre);
+        _dragGhost=document.createElement('div');
+        _dragGhost.className='drag-ghost';
+        _dragGhost.textContent='↕ '+faseObj.nombre.slice(0,40);
+        document.body.appendChild(_dragGhost);
+        e.dataTransfer.setDragImage(document.createElement('div'),0,0);
+        setTimeout(function(){row.style.opacity='.4';},0);
+      });
+
+      handle.addEventListener('dragend',function(){
+        row.style.opacity='1';
+        if(_dragGhost){_dragGhost.remove();_dragGhost=null;}
+        glBody.querySelectorAll('.grow.drag-over-top,.grow.drag-over-bottom').forEach(function(el){
+          el.classList.remove('drag-over-top','drag-over-bottom');
+        });
+        window._dragFaseName=null;window._dragFaseProj=null;_dragMode=null;
+      });
+
+      gcell.insertBefore(handle,gcell.firstChild);
+    }
+
+    // Drop target for other fase rows
+    row.addEventListener('dragover',function(e){
+      if(!window._dragFaseName||window._dragFaseName===lbl)return;
+      if(window._dragFaseProj!==faseObj.proyecto)return;
+      e.preventDefault();e.stopPropagation();
+      e.dataTransfer.dropEffect='move';
+      glBody.querySelectorAll('.grow.drag-over-top,.grow.drag-over-bottom').forEach(function(el){
+        if(el!==row){el.classList.remove('drag-over-top','drag-over-bottom');}
+      });
+      var rect=row.getBoundingClientRect();
+      if(e.clientY<rect.top+rect.height/2){row.classList.add('drag-over-top');row.classList.remove('drag-over-bottom');}
+      else{row.classList.add('drag-over-bottom');row.classList.remove('drag-over-top');}
+    });
+
+    row.addEventListener('dragleave',function(){
+      row.classList.remove('drag-over-top','drag-over-bottom');
+    });
+
+    row.addEventListener('drop',function(e){
+      row.classList.remove('drag-over-top','drag-over-bottom');
+      if(!window._dragFaseName||window._dragFaseName===lbl)return;
+      if(window._dragFaseProj!==faseObj.proyecto)return;
+      e.preventDefault();e.stopPropagation();
+
+      var projName=faseObj.proyecto;
+      var allFases=fases.filter(function(f){return f.proyecto===projName;}).map(function(f){return f.nombre;});
+      var order=getOrder('fase',projName);
+      if(!order.length)order=allFases.slice();
+
+      var fromIdx=order.indexOf(window._dragFaseName);
+      if(fromIdx===-1)order.push(window._dragFaseName);
+      else order.splice(fromIdx,1);
+
+      var rect=row.getBoundingClientRect();
+      var insertAfter=e.clientY>=rect.top+rect.height/2;
+      var tgtIdx=order.indexOf(lbl);
+      if(tgtIdx===-1)order.push(window._dragFaseName);
+      else order.splice(insertAfter?tgtIdx+1:tgtIdx,0,window._dragFaseName);
+
+      setOrder('fase',projName,order);
+      renderGantt();
+      toast('↕ Fase reordenada');
     });
   });
 
