@@ -1745,47 +1745,112 @@ function openEditProject(pid){
 }
 function closeProjModal(){document.getElementById('proj-modal').classList.add('hidden');editProjId=null;}
 function saveProjModal(){
-  var name=document.getElementById('pm-name').value.trim();if(!name){toast('⚠️ El nombre es obligatorio.');return;}
-  // CAPTURE old name BEFORE any Firebase update
-  var oldName=null;
+  var name=document.getElementById('pm-name').value.trim();
+  if(!name){toast('⚠️ El nombre es obligatorio.');return;}
+
+  // CAPTURE everything BEFORE any Firebase update
+  var oldName=null, oldOwner=null;
   if(editProjId){
     var oldProj=projects.find(function(x){return x.id===editProjId;});
-    if(oldProj) oldName=oldProj.name;
+    if(oldProj){oldName=oldProj.name;oldOwner=oldProj.propietario||oldProj.owner||oldProj.createdBy;}
   }
-  var p={id:editProjId||uid(),name:name,desc:document.getElementById('pm-desc').value.trim(),
-    color:selProjColor_,status:document.getElementById('pm-status').value,
-    start:document.getElementById('pm-start').value,end:document.getElementById('pm-end').value,
+
+  // Snapshot local arrays NOW before onSnapshot fires
+  var localTasks=tasks.slice();
+  var localFases=fases.slice();
+
+  var p={id:editProjId||uid(),name:name,
+    desc:document.getElementById('pm-desc').value.trim(),
+    color:selProjColor_,
+    status:document.getElementById('pm-status').value,
+    start:document.getElementById('pm-start').value,
+    end:document.getElementById('pm-end').value,
     owner:document.getElementById('pm-owner').value.trim(),
     propietario:document.getElementById('pm-propietario').value,
-    createdBy:curUser?curUser.name:'',updTs:nowStr()};
+    createdBy:curUser?curUser.name:'',
+    updTs:nowStr()
+  };
+
+  // Immediately update local arrays to prevent race condition with onSnapshot
+  if(editProjId && oldName && oldName !== name){
+    tasks.forEach(function(t){
+      if(t.proj===oldName||t.proyecto===oldName){t.proj=name;t.proyecto=name;}
+    });
+    fases.forEach(function(f){
+      if(f.proyecto===oldName){f.proyecto=name;}
+    });
+  }
+
   db.collection('projects').doc(p.id).set(p)
     .then(function(){
       if(editProjId && oldName && oldName !== name){
-        // Name changed — use oldName captured BEFORE Firebase updated the local array
-        var affected=tasks.filter(function(t){return t.proj===oldName||t.proyecto===oldName;});
-        var faseAffected=fases.filter(function(f){return f.proyecto===oldName;});
-        if(affected.length>0||faseAffected.length>0){
+        // Name changed — use localTasks/localFases captured before Firebase fired
+        var affected=localTasks.filter(function(t){
+          return t.proj===oldName||t.proyecto===oldName;
+        });
+        var faseAff=localFases.filter(function(f){return f.proyecto===oldName;});
+
+        // Also update localStorage order keys
+        try{
+          var projOrder=JSON.parse(localStorage.getItem('gt_order_proj')||'{}');
+          var faseOrder=JSON.parse(localStorage.getItem('gt_order_fase')||'{}');
+          var taskOrder=JSON.parse(localStorage.getItem('gt_order_task')||'{}');
+          // Rename proj order key (owner → array of proj ids, ids don't change so proj order is fine)
+          // Rename fase order: key was oldName, now newName
+          if(faseOrder[oldName]){faseOrder[name]=faseOrder[oldName];delete faseOrder[oldName];}
+          // Rename task order: keys like "oldName|faseName"
+          Object.keys(taskOrder).forEach(function(k){
+            if(k.indexOf(oldName+'|')===0){
+              var newKey=name+k.slice(oldName.length);
+              taskOrder[newKey]=taskOrder[k];delete taskOrder[k];
+            }
+          });
+          localStorage.setItem('gt_order_fase',JSON.stringify(faseOrder));
+          localStorage.setItem('gt_order_task',JSON.stringify(taskOrder));
+        }catch(e){}
+
+        if(affected.length>0||faseAff.length>0){
           var batch=db.batch();
-          affected.forEach(function(t){batch.update(db.collection('tasks').doc(t.id),{proj:name,proyecto:name});});
-          faseAffected.forEach(function(f){batch.update(db.collection('fases').doc(f.id),{proyecto:name});});
+          affected.forEach(function(t){
+            batch.update(db.collection('tasks').doc(t.id),{proj:name,proyecto:name});
+          });
+          faseAff.forEach(function(f){
+            batch.update(db.collection('fases').doc(f.id),{proyecto:name});
+          });
           batch.commit()
-            .then(function(){closeProjModal();toast('✅ Renombrado — '+affected.length+' tareas y '+faseAffected.length+' fases actualizadas');})
-            .catch(function(e){closeProjModal();toast('⚠️ Error actualizando referencias: '+e.message);});
+            .then(function(){
+              _pauseRender=false;
+              closeProjModal();
+              toast('✅ Renombrado — '+affected.length+' tareas y '+faseAff.length+' fases actualizadas');
+            })
+            .catch(function(e){
+              _pauseRender=false;
+              closeProjModal();
+              toast('⚠️ Error: '+e.message);
+            });
         } else {
-          closeProjModal();toast('✅ Proyecto actualizado');
+          _pauseRender=false;
+          closeProjModal();
+          toast('✅ Proyecto actualizado');
         }
       } else if(editProjId){
-        closeProjModal();toast('✅ Proyecto actualizado');
+        _pauseRender=false;
+        closeProjModal();
+        toast('✅ Proyecto actualizado');
       } else {
+        _pauseRender=false;
         // New project — notify owner
-        var ownerEmail=Object.keys(USER_DIR).find(function(e){return USER_DIR[e].name===p.propietario;});
+        var ownerEmail=Object.keys(USER_DIR).find(function(e){
+          return USER_DIR[e].name===p.propietario;
+        });
         if(ownerEmail&&p.propietario!==curUser.name){
-          notifyProjectAssign(p.name, p.propietario, ownerEmail);
+          notifyProjectAssign(p.name,p.propietario,ownerEmail);
         }
-        closeProjModal();toast('✅ Proyecto creado');
+        closeProjModal();
+        toast('✅ Proyecto creado');
       }
     })
-    .catch(function(e){toast('⚠️ '+e.message);});
+    .catch(function(e){_pauseRender=false;toast('⚠️ '+e.message);});
 }
 function deleteProject(pid){
   var p=projects.find(function(x){return x.id===pid;});if(!p)return;
