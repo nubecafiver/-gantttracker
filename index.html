@@ -88,6 +88,46 @@ select option{background:var(--c-bg3);}
 #app{display:flex;flex-direction:column;height:100vh;overflow:hidden;}
 #app-body{flex:1;overflow:hidden;display:flex;flex-direction:column;}
 .view-wrap{flex:1;overflow:auto;padding:1.5rem;}
+/* ── TABLERO (kanban) ── */
+.kb-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;}
+.kb-bar h2{font-size:18px;font-weight:700;margin:0;}
+.kb-sub{color:var(--c-text2);font-size:12px;}
+.kb-sp{flex:1;}
+.kb-fil{font-family:inherit;font-size:12px;color:var(--c-text);border:1px solid var(--c-border);border-radius:7px;padding:6px 9px;background:#fff;}
+.kb-board{display:grid;grid-template-columns:repeat(4,minmax(230px,1fr));gap:14px;align-items:start;overflow-x:auto;padding-bottom:20px;}
+.kb-col{background:var(--c-bg3);border:1px solid var(--c-border);border-radius:12px;min-height:340px;display:flex;flex-direction:column;}
+.kb-col.over{outline:2px dashed var(--c-blue);background:#EEF3FE;}
+.kb-col-h{display:flex;align-items:center;gap:8px;padding:11px 12px;font-weight:800;font-size:12px;letter-spacing:.3px;text-transform:uppercase;}
+.kb-dot{width:9px;height:9px;border-radius:50%;}
+.kb-cnt{margin-left:auto;background:#fff;border:1px solid var(--c-border);border-radius:20px;padding:1px 8px;font-size:11px;color:var(--c-text2);font-weight:600;}
+.kb-cards{padding:0 10px 10px;display:flex;flex-direction:column;gap:9px;flex:1;}
+.kb-card{background:#fff;border:1px solid var(--c-border);border-radius:10px;padding:10px 11px;cursor:grab;box-shadow:0 1px 2px rgba(16,24,40,.04);}
+.kb-card:hover{border-color:#B6C6F2;box-shadow:0 3px 10px rgba(27,79,216,.10);}
+.kb-card.drag{opacity:.35;}
+.kb-card:active{cursor:grabbing;}
+.kb-ct{font-weight:700;font-size:13px;margin-bottom:8px;line-height:1.3;}
+.kb-meta{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--c-text2);}
+.kb-av{width:20px;height:20px;border-radius:50%;color:#fff;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;}
+.kb-prog{height:5px;background:var(--c-border2);border-radius:5px;margin:8px 0 5px;overflow:hidden;}
+.kb-prog i{display:block;height:100%;border-radius:5px;}
+.kb-row{display:flex;justify-content:space-between;font-size:11px;color:var(--c-text2);}
+.kb-empty{color:#9CA3AF;text-align:center;padding:26px 8px;font-size:12px;}
+.kb-add{margin:0 10px 10px;border:1px dashed #C7CEDD;background:transparent;border-radius:8px;padding:7px;color:var(--c-text2);font-weight:600;font-size:12px;font-family:inherit;cursor:pointer;}
+.kb-add:hover{border-color:var(--c-blue);color:var(--c-blue);}
+.kb-warn{background:#FEF3C7;border:1px solid #FDE68A;color:#92400E;border-radius:10px;padding:12px 14px;font-size:12px;line-height:1.6;margin-bottom:14px;}
+.kb-ov{position:fixed;inset:0;background:rgba(17,24,39,.35);display:none;justify-content:flex-end;z-index:450;}
+.kb-ov.on{display:flex;}
+.kb-panel{width:min(440px,100%);background:#fff;height:100%;overflow:auto;padding:20px;box-shadow:-8px 0 30px rgba(0,0,0,.12);}
+.kb-panel h3{margin:0 0 14px;font-size:16px;}
+.kb-lbl{font-size:10px;font-weight:800;letter-spacing:.4px;color:var(--c-text2);text-transform:uppercase;margin:14px 0 5px;}
+.kb-panel input[type=text],.kb-panel select,.kb-panel textarea{width:100%;font-family:inherit;font-size:13px;color:var(--c-text);border:1px solid var(--c-border);border-radius:7px;padding:7px 9px;background:#fff;}
+.kb-log{border-left:2px solid var(--c-border);margin-left:6px;padding-left:12px;}
+.kb-log div{margin-bottom:10px;font-size:12px;}
+.kb-log small{color:var(--c-text2);display:block;}
+.kb-mov{color:var(--c-text2);font-style:italic;}
+.kb-x{float:right;background:none;border:0;font-size:20px;color:var(--c-text2);cursor:pointer;}
+.kb-rng{display:flex;gap:10px;align-items:center;}
+.kb-rng input[type=range]{flex:1;padding:0;border:0;}
 
 /* ── SECBAR ── */
 #secbar{height:42px;background:#F9FAFB;border-bottom:1.5px solid #D1D5DB;display:flex;align-items:center;padding:0 16px;gap:8px;flex-shrink:0;}
@@ -313,6 +353,7 @@ tbody tr:hover{background:#F9FAFB;}
       <button class="tb-nav-btn on" id="tnav-gantt" onclick="switchView('gantt')">▦ Gantt</button>
       <button class="tb-nav-btn" id="tnav-projects" onclick="switchView('projects')">📁 Proyectos</button>
       <button class="tb-nav-btn" id="tnav-daily" onclick="switchView('daily')">📅 Diario</button>
+      <button class="tb-nav-btn" id="tnav-board" onclick="switchView('board')">🗂 Tablero</button>
       <button class="tb-nav-btn" id="tnav-hist" onclick="switchView('hist')">◷ Historial</button>
     </div>
     <div class="tb-right">
@@ -381,6 +422,8 @@ tbody tr:hover{background:#F9FAFB;}
     <div id="view-projects" class="hidden view-wrap"><div id="projects-inner"></div></div>
     <!-- DAILY VIEW -->
     <div id="view-daily" class="hidden view-wrap"><div id="daily-inner"></div></div>
+    <!-- BOARD VIEW (Tablero) -->
+    <div id="view-board" class="hidden view-wrap"><div id="board-inner"></div></div>
     <!-- HIST VIEW -->
     <div id="view-hist" class="hidden view-wrap"><div id="hist-inner"></div></div>
   </div>
@@ -588,6 +631,8 @@ tbody tr:hover{background:#F9FAFB;}
 </div>
 
 <div id="toast"></div>
+<!-- TABLERO: panel lateral -->
+<div class="kb-ov" id="kb-ov" onclick="if(event.target===this)kbClose()"><div class="kb-panel" id="kb-panel"></div></div>
 
 <script>
 // ════════════════════════════════════════
@@ -630,6 +675,7 @@ var tasks=[],projects=[],fases=[],actLog=[],dailyLogs=[],comments=[],evidencias=
 var curUser=null,curView='gantt',openTaskId=null,dpCurTab='details';
 var ganttStart=new Date(),ganttDays=120,collapsed=new Set(),editProjId=null,_orderProj={},_orderFase={},_orderTask={};
 var _cb=null;
+var kbCards=[],kbFil='',kbOpenId=null,kbDragId=null,kbErr='',kbUnsub=null;
 
 ganttStart.setDate(ganttStart.getDate()-14);
 
@@ -720,6 +766,7 @@ function enterApp(){
 function doLogout(){
   auth.signOut().then(function(){
     curUser=null;tasks=[];projects=[];fases=[];actLog=[];dailyLogs=[];comments=[];evidencias=[];
+    if(kbUnsub){kbUnsub();kbUnsub=null;}kbCards=[];kbFil='';kbErr='';
     closePanel();
     document.getElementById('app').classList.add('hidden');
     document.getElementById('login-screen').classList.remove('hidden');
@@ -776,6 +823,8 @@ function loadData(){
       });
     }
   });
+  // Tablero (kanban de tareas diarias)
+  kbSubscribe();
   switchView('gantt');
 }
 function fbSaveTask(t){
@@ -793,7 +842,7 @@ function fbSaveTask(t){
 // ════════════════════════════════════════
 function switchView(v){
   curView=v;
-  ['gantt','projects','daily','hist'].forEach(function(x){
+  ['gantt','projects','daily','board','hist'].forEach(function(x){
     var el=document.getElementById('view-'+x);if(!el)return;
     el.classList.remove("hidden");el.style.display=(x==="gantt"?(v==="gantt"?"flex":"none"):(v===x?"block":"none"));
     if(x==='gantt')el.style.flexDirection='column';
@@ -803,7 +852,186 @@ function switchView(v){
   if(v==='gantt')renderGantt();
   else if(v==='projects')renderProjects();
   else if(v==='daily')renderDailySetup();
+  else if(v==='board')renderBoard();
   else if(v==='hist')renderHist();
+}
+
+// ════════════════════════════════════════
+// GANTT
+// ════════════════════════════════════════
+// ════════════════════════════════════════
+// TABLERO — kanban de tareas diarias (colección Firestore: tablero)
+// Campos: id, titulo, col, resp(email), pct, notas[], movs[], createdBy, createdTs, updTs, ord
+// ════════════════════════════════════════
+var KB_COLS=[
+  {id:'pend',nombre:'Pendiente',color:'#9CA3AF'},
+  {id:'prog',nombre:'En progreso',color:'#1B4FD8'},
+  {id:'rev',nombre:'En revisión',color:'#D97706'},
+  {id:'hecho',nombre:'Hecho',color:'#059669'}
+];
+function kbCol(id){for(var i=0;i<KB_COLS.length;i++){if(KB_COLS[i].id===id)return KB_COLS[i];}return {id:id,nombre:id,color:'#9CA3AF'};}
+function kbIsAdmin(){return !!curUser&&curUser.email===ADMIN_EMAIL;}
+function kbEsc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function kbFmt(ts){var d=new Date(ts);return d.toLocaleDateString('es-MX',{day:'2-digit',month:'short'})+' '+d.toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'});}
+function kbUserName(email){return (USER_DIR[email]||{name:email||'?'}).name;}
+function kbUserColor(email){return (USER_DIR[email]||{color:'#9CA3AF'}).color;}
+function kbFind(id){for(var i=0;i<kbCards.length;i++){if(kbCards[i].id===id)return kbCards[i];}return null;}
+
+function kbSubscribe(){
+  if(kbUnsub){kbUnsub();kbUnsub=null;}
+  kbUnsub=db.collection('tablero').onSnapshot(function(s){
+    kbErr='';
+    kbCards=s.docs.map(function(d){var c=d.data();c.notas=c.notas||[];c.movs=c.movs||[];return c;});
+    if(curView==='board')renderBoard();
+  },function(e){
+    if(!curUser)return;
+    kbErr=(e&&e.code==='permission-denied')?'permission-denied':((e&&e.message)||'Error');
+    if(curView==='board')renderBoard();
+  });
+}
+function kbSave(c){
+  c.updTs=Date.now();
+  setSyncUI('saving','Guardando...');
+  db.collection('tablero').doc(c.id).set(cleanObj(c))
+    .then(function(){setSyncUI('ok','En línea ✓');})
+    .catch(function(e){setSyncUI('err','Error');toast('⚠️ '+e.message);});
+}
+function kbVisible(){
+  return kbCards.filter(function(c){
+    if(!kbIsAdmin())return c.resp===curUser.email;
+    if(kbFil&&c.resp!==kbFil)return false;
+    return true;
+  }).sort(function(a,b){return (a.ord||0)-(b.ord||0);});
+}
+function kbSetFil(v){kbFil=v;renderBoard();}
+
+function renderBoard(){
+  var el=document.getElementById('board-inner');if(!el||!curUser)return;
+  var admin=kbIsAdmin(),vis=kbVisible(),h='';
+  var terminadas=vis.filter(function(c){return c.col==='hecho';}).length;
+
+  h+='<div class="kb-bar"><h2>Tablero</h2><span class="kb-sub">'+vis.length+' tarjeta(s) · '+terminadas+' terminada(s)'+(admin?' · vista de administrador':'')+'</span><div class="kb-sp"></div>';
+  if(admin){
+    h+='<label class="kb-sub">Responsable: <select class="kb-fil" onchange="kbSetFil(this.value)"><option value="">Todos</option>';
+    Object.keys(USER_DIR).forEach(function(e){h+='<option value="'+kbEsc(e)+'"'+(kbFil===e?' selected':'')+'>'+kbEsc(USER_DIR[e].name)+'</option>';});
+    h+='</select></label>';
+  }
+  h+='<button class="btn btn-primary btn-sm" onclick="kbOpenNew(\'pend\')">+ Tarjeta</button></div>';
+
+  if(kbErr==='permission-denied'){
+    h+='<div class="kb-warn"><b>Falta permiso en Firebase.</b> Las reglas de Firestore no permiten la colección <code>tablero</code>. Agrega una regla para <code>tablero</code> (igual a la de <code>tasks</code>) en Firebase → Firestore → Reglas, y recarga la página.</div>';
+  }else if(kbErr){
+    h+='<div class="kb-warn">No se pudo cargar el tablero: '+kbEsc(kbErr)+'</div>';
+  }
+
+  h+='<div class="kb-board">';
+  KB_COLS.forEach(function(col){
+    var list=vis.filter(function(c){return c.col===col.id;});
+    h+='<div class="kb-col" data-col="'+col.id+'" ondragover="kbOver(event,this)" ondragleave="this.classList.remove(\'over\')" ondrop="kbDrop(event,this)">'+
+      '<div class="kb-col-h"><span class="kb-dot" style="background:'+col.color+'"></span>'+col.nombre+'<span class="kb-cnt">'+list.length+'</span></div><div class="kb-cards">';
+    if(!list.length)h+='<div class="kb-empty">Sin tarjetas</div>';
+    list.forEach(function(c){
+      var pct=parseInt(c.pct)||0,nn=(c.notas||[]).length;
+      h+='<div class="kb-card" draggable="true" data-id="'+kbEsc(c.id)+'" ondragstart="kbDS(event,this)" ondragend="this.classList.remove(\'drag\')" onclick="kbOpen(\''+kbEsc(c.id)+'\')">'+
+        '<div class="kb-ct">'+kbEsc(c.titulo)+'</div>'+
+        '<div class="kb-meta"><span class="kb-av" style="background:'+kbUserColor(c.resp)+'">'+kbEsc(ini(kbUserName(c.resp)))+'</span>'+kbEsc(kbUserName(c.resp).split(' ')[0])+'</div>'+
+        '<div class="kb-prog"><i style="width:'+pct+'%;background:'+(pct>=100?'#059669':col.color)+'"></i></div>'+
+        '<div class="kb-row"><span>'+pct+'%</span><span>'+(nn?nn+' nota(s)':'sin notas')+'</span></div></div>';
+    });
+    h+='</div><button class="kb-add" onclick="kbOpenNew(\''+col.id+'\')">+ Agregar</button></div>';
+  });
+  h+='</div>';
+  el.innerHTML=h;
+}
+
+/* arrastrar y soltar */
+function kbDS(e,el){kbDragId=el.getAttribute('data-id');el.classList.add('drag');e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',kbDragId);}
+function kbOver(e,el){e.preventDefault();el.classList.add('over');}
+function kbDrop(e,el){
+  e.preventDefault();el.classList.remove('over');
+  var c=kbFind(kbDragId);if(!c)return;
+  var to=el.getAttribute('data-col');
+  if(c.col===to)return;
+  kbMover(c,to);renderBoard();kbSave(c);
+}
+function kbMover(c,to){
+  var from=c.col;if(from===to)return;
+  c.movs=c.movs||[];
+  c.movs.push({ts:Date.now(),user:curUser.email,de:from,a:to});
+  c.col=to;c.ord=Date.now();
+  if(to==='hecho')c.pct=100;
+  else if(to==='prog'&&(parseInt(c.pct)||0)===0)c.pct=10;
+  toast('«'+c.titulo+'» → '+kbCol(to).nombre);
+}
+
+/* panel de detalle */
+function kbOpen(id){
+  var c=kbFind(id);if(!c)return;
+  kbOpenId=id;
+  var admin=kbIsAdmin(),cOpts='',rOpts='';
+  KB_COLS.forEach(function(k){cOpts+='<option value="'+k.id+'"'+(k.id===c.col?' selected':'')+'>'+k.nombre+'</option>';});
+  Object.keys(USER_DIR).forEach(function(e){rOpts+='<option value="'+kbEsc(e)+'"'+(e===c.resp?' selected':'')+'>'+kbEsc(USER_DIR[e].name)+'</option>';});
+  var pct=parseInt(c.pct)||0;
+  var items=(c.notas||[]).map(function(n){return {ts:n.ts,h:'<b>'+kbEsc(kbUserName(n.user))+'</b>: '+kbEsc(n.text)};})
+    .concat((c.movs||[]).map(function(m){return {ts:m.ts,h:'<span class="kb-mov">'+kbEsc(kbUserName(m.user))+' movió de '+kbCol(m.de).nombre+' a '+kbCol(m.a).nombre+'</span>'};}))
+    .sort(function(a,b){return b.ts-a.ts;});
+  var log=items.length?items.map(function(x){return '<div><small>'+kbFmt(x.ts)+'</small>'+x.h+'</div>';}).join(''):'<div class="kb-mov">Sin actividad todavía</div>';
+  document.getElementById('kb-panel').innerHTML=
+    '<button class="kb-x" onclick="kbClose()">×</button><h3>Detalle de tarjeta</h3>'+
+    '<div class="kb-lbl">Título</div><input type="text" id="kb-pT" value="'+kbEsc(c.titulo)+'">'+
+    '<div class="kb-lbl">Columna</div><select id="kb-pC">'+cOpts+'</select>'+
+    '<div class="kb-lbl">Responsable</div><select id="kb-pR"'+(admin?'':' disabled')+'>'+rOpts+'</select>'+
+    '<div class="kb-lbl">Avance</div><div class="kb-rng"><input type="range" id="kb-pP" min="0" max="100" step="5" value="'+pct+'" oninput="document.getElementById(\'kb-pPv\').textContent=this.value+\'%\'"><b id="kb-pPv">'+pct+'%</b></div>'+
+    '<div class="kb-lbl">Agregar nota de avance</div><textarea id="kb-pN" rows="3" placeholder="¿Qué avanzaste hoy?"></textarea>'+
+    '<div style="display:flex;gap:8px;margin-top:14px"><button class="btn btn-primary" onclick="kbSaveP()">Guardar</button><button class="btn" onclick="kbDelP()">Eliminar</button></div>'+
+    '<div class="kb-lbl" style="margin-top:22px">Bitácora</div><div class="kb-log">'+log+'</div>';
+  document.getElementById('kb-ov').classList.add('on');
+}
+function kbClose(){document.getElementById('kb-ov').classList.remove('on');kbOpenId=null;}
+function kbSaveP(){
+  var c=kbFind(kbOpenId);if(!c)return;
+  var t=document.getElementById('kb-pT').value.trim();if(t)c.titulo=t;
+  if(kbIsAdmin())c.resp=document.getElementById('kb-pR').value;
+  c.pct=parseInt(document.getElementById('kb-pP').value,10)||0;
+  var to=document.getElementById('kb-pC').value;
+  if(to!==c.col)kbMover(c,to);
+  var n=document.getElementById('kb-pN').value.trim();
+  if(n){c.notas=c.notas||[];c.notas.push({ts:Date.now(),user:curUser.email,text:n});}
+  kbSave(c);toast('Tarjeta guardada');kbClose();renderBoard();
+}
+function kbDelP(){
+  var c=kbFind(kbOpenId);if(!c)return;
+  var id=c.id;
+  confirmAction('¿Eliminar tarjeta?','Se eliminará «'+c.titulo+'» y su bitácora. Esta acción no se puede deshacer.',function(){
+    kbCards=kbCards.filter(function(x){return x.id!==id;});
+    db.collection('tablero').doc(id).delete().catch(function(e){toast('⚠️ '+e.message);});
+    kbClose();renderBoard();toast('Tarjeta eliminada');
+  });
+}
+
+/* nueva tarjeta */
+function kbOpenNew(col){
+  var admin=kbIsAdmin(),cOpts='',rOpts='';
+  KB_COLS.forEach(function(k){cOpts+='<option value="'+k.id+'"'+(k.id===(col||'pend')?' selected':'')+'>'+k.nombre+'</option>';});
+  Object.keys(USER_DIR).forEach(function(e){rOpts+='<option value="'+kbEsc(e)+'"'+(e===curUser.email?' selected':'')+'>'+kbEsc(USER_DIR[e].name)+'</option>';});
+  document.getElementById('kb-panel').innerHTML=
+    '<button class="kb-x" onclick="kbClose()">×</button><h3>Nueva tarjeta</h3>'+
+    '<div class="kb-lbl">Título</div><input type="text" id="kb-nT" placeholder="Descripción clara de la tarea…">'+
+    '<div class="kb-lbl">Columna</div><select id="kb-nC">'+cOpts+'</select>'+
+    '<div class="kb-lbl">Responsable</div><select id="kb-nR"'+(admin?'':' disabled')+'>'+rOpts+'</select>'+
+    '<div style="margin-top:16px"><button class="btn btn-primary" onclick="kbCreate()">Crear tarjeta</button></div>';
+  document.getElementById('kb-ov').classList.add('on');
+  setTimeout(function(){var i=document.getElementById('kb-nT');if(i)i.focus();},50);
+}
+function kbCreate(){
+  var t=document.getElementById('kb-nT').value.trim();
+  if(!t){toast('Escribe un título');return;}
+  var col=document.getElementById('kb-nC').value;
+  var resp=kbIsAdmin()?document.getElementById('kb-nR').value:curUser.email;
+  var now=Date.now();
+  var c={id:uid(),titulo:t,col:col,resp:resp,pct:col==='hecho'?100:0,notas:[],movs:[],createdBy:curUser.email,createdTs:now,ord:now};
+  kbCards.push(c);kbSave(c);
+  kbClose();renderBoard();toast('Tarjeta creada');
 }
 
 // ════════════════════════════════════════
